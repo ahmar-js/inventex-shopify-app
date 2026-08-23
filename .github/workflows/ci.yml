@@ -16,6 +16,8 @@ jobs:
       SHOPIFY_APP_URL: https://inventex.example.com
       SCOPES: read_products,write_products,read_inventory,read_publications,write_publications,read_locations,write_online_store_navigation
       CRON_SECRET: ci-test-cron-secret
+      RESEND_API_KEY: re_ci_test_key
+      ALERT_FROM_EMAIL: alerts@inventex.example.com
       SUPPORT_EMAIL: support@inventex.example.com
     steps:
       - uses: actions/checkout@v4

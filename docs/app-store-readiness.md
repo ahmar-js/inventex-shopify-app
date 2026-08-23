@@ -10,6 +10,9 @@ completed against the production deployment and Shopify Partner Dashboard.
   the production OAuth callback before running `shopify app deploy`.
 - Set `SUPPORT_EMAIL` and use the same monitored address in the App Store
   listing and emergency developer contact.
+- Set `RESEND_API_KEY` and a verified `ALERT_FROM_EMAIL`; production startup
+  fails closed without either value so alerts cannot be recorded as delivered
+  when email delivery is unavailable.
 - Privacy policy URL: `${SHOPIFY_APP_URL}/privacy`.
 - Support URL: `${SHOPIFY_APP_URL}/support`.
 - Published language: English only.

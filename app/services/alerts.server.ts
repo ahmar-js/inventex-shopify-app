@@ -233,8 +233,8 @@ async function enqueueAlert({
     });
 
     if (existing) {
-      await db.alertQueue.update({
-        where: { id: existing.id },
+      await db.alertQueue.updateMany({
+        where: { id: existing.id, shop, processed: false },
         data:  { quantity: target.quantity, queuedAt: new Date() },
       });
     } else {

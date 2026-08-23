@@ -85,7 +85,7 @@ export async function runJobBatch(limit = 10) {
     try {
       await processJob(job);
       await db.job.updateMany({
-        where: { id: job.id, status: JobStatus.PROCESSING },
+        where: { id: job.id, shop: job.shop, status: JobStatus.PROCESSING },
         data: {
           status: JobStatus.COMPLETED,
           lockedAt: null,
@@ -557,7 +557,7 @@ function jobRequiresBilling(jobType: string) {
 
 async function deferJob(job: Job, error: CollectionSortDeferredError) {
   await db.job.updateMany({
-    where: { id: job.id, status: JobStatus.PROCESSING },
+    where: { id: job.id, shop: job.shop, status: JobStatus.PROCESSING },
     data: {
       status: JobStatus.PENDING,
       runAfter: error.runAfter,
@@ -583,7 +583,7 @@ async function rescheduleOrFail(job: Job, error: unknown) {
 
   if (shouldRetry) {
     await db.job.updateMany({
-      where: { id: job.id, status: JobStatus.PROCESSING },
+      where: { id: job.id, shop: job.shop, status: JobStatus.PROCESSING },
       data: {
         status: JobStatus.PENDING,
         runAfter: new Date(Date.now() + delayMs),
@@ -594,7 +594,7 @@ async function rescheduleOrFail(job: Job, error: unknown) {
   } else {
     await db.$transaction([
       db.job.updateMany({
-        where: { id: job.id, status: JobStatus.PROCESSING },
+        where: { id: job.id, shop: job.shop, status: JobStatus.PROCESSING },
         data: {
           status: JobStatus.FAILED,
           lockedAt: null,

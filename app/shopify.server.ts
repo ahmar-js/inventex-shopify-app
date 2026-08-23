@@ -16,6 +16,8 @@ if (process.env.NODE_ENV === "production") {
     "SHOPIFY_APP_URL",
     "DATABASE_URL",
     "CRON_SECRET",
+    "RESEND_API_KEY",
+    "ALERT_FROM_EMAIL",
     "SUPPORT_EMAIL",
   ]) {
     if (!process.env[name]?.trim()) {

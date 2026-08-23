@@ -5,8 +5,8 @@
  *   RESEND_API_KEY   — your Resend secret key
  *   ALERT_FROM_EMAIL — verified sender, e.g. "alerts@yourdomain.com"
  *
- * If RESEND_API_KEY is not set the module logs a warning and skips sending,
- * so local dev works without a real key.
+ * Missing configuration throws before a delivery is recorded. This prevents
+ * production from treating a skipped email as successfully sent.
  */
 
 import { Resend } from "resend";
@@ -15,15 +15,19 @@ import { Resend } from "resend";
 
 let _resend: Resend | null = null;
 
-function getClient(): Resend | null {
-  if (!process.env.RESEND_API_KEY) {
-    console.warn("[email] RESEND_API_KEY not set — skipping email send.");
-    return null;
-  }
+function getTransport() {
+  const apiKey = requiredEmailEnvironment("RESEND_API_KEY");
+  const from = requiredEmailEnvironment("ALERT_FROM_EMAIL");
   if (!_resend) {
-    _resend = new Resend(process.env.RESEND_API_KEY);
+    _resend = new Resend(apiKey);
   }
-  return _resend;
+  return { client: _resend, from };
+}
+
+function requiredEmailEnvironment(name: "RESEND_API_KEY" | "ALERT_FROM_EMAIL") {
+  const value = process.env[name]?.trim();
+  if (!value) throw new Error(`${name} is required to send Inventex alerts`);
+  return value;
 }
 
 // ─── Types ──────────────────────────────────────────────────
@@ -58,11 +62,10 @@ export interface DigestEmailPayload {
 
 // ─── Send single alert email ─────────────────────────────────
 
-export async function sendAlertEmail(payload: AlertEmailPayload): Promise<void> {
-  const client = getClient();
-  if (!client) return;
-
-  const from = process.env.ALERT_FROM_EMAIL ?? "alerts@inventex.app";
+export async function sendAlertEmail(
+  payload: AlertEmailPayload,
+): Promise<void> {
+  const { client, from } = getTransport();
 
   const { error } = await client.emails.send({
     from,
@@ -83,11 +86,10 @@ export async function sendAlertEmail(payload: AlertEmailPayload): Promise<void> 
 
 // ─── Send digest (daily / weekly) ───────────────────────────
 
-export async function sendDigestEmail(payload: DigestEmailPayload): Promise<void> {
-  const client = getClient();
-  if (!client) return;
-
-  const from = process.env.ALERT_FROM_EMAIL ?? "alerts@inventex.app";
+export async function sendDigestEmail(
+  payload: DigestEmailPayload,
+): Promise<void> {
+  const { client, from } = getTransport();
 
   const { error } = await client.emails.send({
     from,
@@ -134,7 +136,7 @@ const CSS = `
 function buildSingleAlertHtml(p: AlertEmailPayload): string {
   const isOut = p.alertType === "OUT_OF_STOCK";
   const badgeClass = isOut ? "badge-out" : "badge-low";
-  const badgeText  = isOut ? "OUT OF STOCK" : "LOW STOCK";
+  const badgeText = isOut ? "OUT OF STOCK" : "LOW STOCK";
   const variantLine = p.variantTitle
     ? `<p class="variant-title">Variant: ${esc(p.variantTitle)}</p>`
     : "";
@@ -165,19 +167,23 @@ function buildSingleAlertHtml(p: AlertEmailPayload): string {
 }
 
 function buildDigestHtml(p: DigestEmailPayload): string {
-  const rows = p.items.map((item) => {
-    const isOut = item.alertType === "OUT_OF_STOCK";
-    const badge = isOut
-      ? `<span style="color:#842029;font-weight:600">Out of stock</span>`
-      : `<span style="color:#856404;font-weight:600">Low stock</span>`;
-    const variant = item.variantTitle ? ` <span style="color:#6d7175;font-size:12px">(${esc(item.variantTitle)})</span>` : "";
-    return `<tr>
+  const rows = p.items
+    .map((item) => {
+      const isOut = item.alertType === "OUT_OF_STOCK";
+      const badge = isOut
+        ? `<span style="color:#842029;font-weight:600">Out of stock</span>`
+        : `<span style="color:#856404;font-weight:600">Low stock</span>`;
+      const variant = item.variantTitle
+        ? ` <span style="color:#6d7175;font-size:12px">(${esc(item.variantTitle)})</span>`
+        : "";
+      return `<tr>
       <td>${esc(item.productTitle)}${variant}</td>
       <td>${badge}</td>
       <td style="text-align:right">${item.quantity}</td>
       <td><a href="${esc(item.productAdminUrl)}" style="color:#458fff">View</a></td>
     </tr>`;
-  }).join("");
+    })
+    .join("");
 
   return `<!DOCTYPE html><html><head><meta charset="utf-8"><style>${CSS}</style></head><body>
 <div class="wrap">
