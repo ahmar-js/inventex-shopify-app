@@ -9,65 +9,76 @@ generator client {
 // enough when changing adapters.
 // See https://www.prisma.io/docs/orm/reference/prisma-schema-reference#string for more information
 datasource db {
-  provider = "sqlite"
-  url      = "file:dev.sqlite"
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum JobStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
 }
 
 model Session {
-  id            String    @id
-  shop          String
-  state         String
-  isOnline      Boolean   @default(false)
-  scope         String?
-  expires       DateTime?
-  accessToken   String
-  userId        BigInt?
-  firstName     String?
-  lastName      String?
-  email         String?
-  accountOwner  Boolean   @default(false)
-  locale        String?
-  collaborator  Boolean?  @default(false)
-  emailVerified Boolean?  @default(false)
+  id                  String    @id
+  shop                String
+  state               String
+  isOnline            Boolean   @default(false)
+  scope               String?
+  expires             DateTime?
+  accessToken         String
+  userId              BigInt?
+  firstName           String?
+  lastName            String?
+  email               String?
+  accountOwner        Boolean   @default(false)
+  locale              String?
+  collaborator        Boolean?  @default(false)
+  emailVerified       Boolean?  @default(false)
   refreshToken        String?
   refreshTokenExpires DateTime?
+
+  @@index([shop])
 }
 
 // ─── App Models ─────────────────────────────────────────────
 
 /// Per-shop automation settings chosen by the merchant
 model ShopSettings {
-  id              Int      @id @default(autoincrement())
-  shop            String   @unique
+  id                       Int      @id @default(autoincrement())
+  shop                     String   @unique
   /// HIDE = unpublish product, PUSH_DOWN = move to bottom of collections
-  strategy        String   @default("HIDE")
+  strategy                 String   @default("HIDE")
   /// ALWAYS = always restore, CONDITIONAL = only if app modified, NONE = never
-  restoreBehavior String   @default("ALWAYS")
+  restoreBehavior          String   @default("ALWAYS")
   /// Master switch for the automation
-  enabled         Boolean  @default(false)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  enabled                  Boolean  @default(false)
+  /// Classify continue-selling variants separately for collection sorting.
+  sortContinueSellingAsOos Boolean  @default(false)
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
 }
 
 /// Tracks products that the app has modified (hidden or repositioned)
 /// so we can restore them correctly later
 model InventoryState {
-  id                Int      @id @default(autoincrement())
-  shop              String
-  productId         String
+  id            Int       @id @default(autoincrement())
+  shop          String
+  productId     String
   /// HIDDEN or PUSHED_DOWN — what the app did to this product
-  action            String
+  action        String
   /// Original publication IDs / collection positions, serialized JSON
-  previousState     String?
+  previousState String?
   /// Timestamp of when the app modified this product
-  modifiedAt        DateTime @default(now())
+  modifiedAt    DateTime  @default(now())
   /// Whether this product has been restored already
-  restored          Boolean  @default(false)
-  restoredAt        DateTime?
+  restored      Boolean   @default(false)
+  restoredAt    DateTime?
   /// Whether the automation action resulted in an error
-  error             Boolean  @default(false)
+  error         Boolean   @default(false)
   /// Human-readable error message if action failed
-  errorMessage      String?
+  errorMessage  String?
 
   @@unique([shop, productId])
   @@index([shop, restored])
@@ -91,13 +102,13 @@ model CollectionRule {
 /// Products excluded from automation.
 /// These products are never hidden or pushed down, even if out of stock.
 model ExcludedProduct {
-  id            Int      @id @default(autoincrement())
-  shop          String
+  id           Int      @id @default(autoincrement())
+  shop         String
   /// Full Shopify GID, e.g. gid://shopify/Product/123456
-  productId     String
+  productId    String
   /// Display title for the UI
-  productTitle  String
-  createdAt     DateTime @default(now())
+  productTitle String
+  createdAt    DateTime @default(now())
 
   @@unique([shop, productId])
   @@index([shop])
@@ -105,10 +116,10 @@ model ExcludedProduct {
 
 /// Per-shop alert preferences set by the merchant.
 model AlertSettings {
-  id              Int      @id @default(autoincrement())
-  shop            String   @unique
+  id                 Int      @id @default(autoincrement())
+  shop               String   @unique
   /// Master switch — whether any stock alert emails are sent
-  lowStockEnabled Boolean  @default(false)
+  lowStockEnabled    Boolean  @default(false)
   /// IMMEDIATE = notify instantly, DAILY = once per day at chosen time, WEEKLY = weekly digest
   alertFrequency     String   @default("IMMEDIATE")
   /// Comma-separated list of up to 5 recipient email addresses.
@@ -127,8 +138,8 @@ model AlertSettings {
   alertOnOutOfStock  Boolean  @default(true)
   /// PRODUCT = check total product inventory, VARIANT = check each variant individually
   stockCheckLevel    String   @default("PRODUCT")
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 }
 
 /// Deduplication log — one row per alert actually sent.
@@ -153,18 +164,18 @@ model AlertSent {
 /// Records are written when an alert is triggered but not sent immediately.
 /// The cron endpoint reads and flushes this table.
 model AlertQueue {
-  id          Int      @id @default(autoincrement())
-  shop        String
-  productId   String
-  productTitle String  @default("")
-  variantId   String   @default("")
-  variantTitle String  @default("")
-  alertType   String
+  id           Int      @id @default(autoincrement())
+  shop         String
+  productId    String
+  productTitle String   @default("")
+  variantId    String   @default("")
+  variantTitle String   @default("")
+  alertType    String
   /// Inventory quantity at the time the alert was queued
-  quantity    Int
-  queuedAt    DateTime @default(now())
+  quantity     Int
+  queuedAt     DateTime @default(now())
   /// Whether this row has already been included in a digest
-  processed   Boolean  @default(false)
+  processed    Boolean  @default(false)
 
   @@index([shop, processed, queuedAt])
 }
@@ -182,4 +193,40 @@ model CollectionAutoSorting {
 
   @@unique([shop, collectionId])
   @@index([shop])
+}
+
+/// Durable, multi-store-safe background work queue.
+/// Webhook IDs are persisted in uniqueKey so redeliveries are idempotent.
+model Job {
+  id        String    @id @default(cuid())
+  shop      String
+  type      String
+  payload   Json
+  status    JobStatus @default(PENDING)
+  runAfter  DateTime  @default(now())
+  attempts  Int       @default(0)
+  uniqueKey String
+  lastError String?
+  lockedAt  DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@unique([shop, uniqueKey])
+  @@index([status, runAfter])
+  @@index([shop, status])
+}
+
+/// Latest canonical product availability snapshot used by downstream features.
+model ProductAvailabilityState {
+  id          Int       @id @default(autoincrement())
+  shop        String
+  productId   String
+  status      String
+  ignored     Boolean   @default(false)
+  soldOutAt   DateTime?
+  variants    Json
+  evaluatedAt DateTime  @default(now())
+
+  @@unique([shop, productId])
+  @@index([shop, status])
 }

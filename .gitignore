@@ -3,7 +3,7 @@ node_modules
 # Environment secrets
 .env
 .env.local
-
+.env.example
 # macOS
 .DS_Store
 
@@ -19,6 +19,7 @@ database.sqlite
 
 .env
 .env.*
+!.env.example
 
 
 

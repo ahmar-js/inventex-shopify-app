@@ -15,6 +15,11 @@ import type { AdminApiContext } from "@shopify/shopify-app-react-router/server";
 import db from "../db.server";
 import { sendAlertEmail } from "./email.server";
 import type { AlertEmailPayload } from "./email.server";
+import {
+  evaluateProductAvailability,
+  type ProductAvailabilityResult,
+} from "./availability.server";
+import type { AvailabilityStatus } from "./availability";
 
 // ─── Constants ───────────────────────────────────────────────
 
@@ -31,6 +36,8 @@ interface InventoryTarget {
   variantId:    string;  // empty string = product-level check
   variantTitle: string;
   quantity:     number;
+  status:       AvailabilityStatus;
+  tracked:      boolean;
 }
 
 // ─── Main entry point ────────────────────────────────────────
@@ -45,6 +52,16 @@ export async function maybeFireAlerts(
   shop: string,
   productId: string,
 ): Promise<void> {
+  const availability = await evaluateProductAvailability(admin, shop, productId);
+  await maybeFireAlertsForAvailability(shop, availability);
+}
+
+export async function maybeFireAlertsForAvailability(
+  shop: string,
+  data: ProductAvailabilityResult,
+): Promise<void> {
+  if (data.ignored) return;
+
   // ── 1. Load settings ─────────────────────────────────────
   const settings = await db.alertSettings.findUnique({ where: { shop } });
   if (!settings || !settings.lowStockEnabled) return;
@@ -56,26 +73,30 @@ export async function maybeFireAlerts(
   if (emails.length === 0) return;
 
   // ── 2. Fetch inventory from Shopify ──────────────────────
-  const data = await fetchProductInventory(admin, productId);
-  if (!data) return;
-
   // ── 3. Build targets based on stockCheckLevel ────────────
   const targets: InventoryTarget[] =
     settings.stockCheckLevel === "VARIANT"
       ? data.variants.map((v) => ({
-          productId:    data.productGid,
+          productId:    data.productId,
           productTitle: data.productTitle,
-          variantId:    v.id,
+          variantId:    v.variantId,
           variantTitle: v.title,
-          quantity:     v.inventoryQuantity,
+          quantity:     v.onlineQuantity,
+          status:       v.status,
+          tracked:      v.tracked,
         }))
       : [
           {
-            productId:    data.productGid,
+            productId:    data.productId,
             productTitle: data.productTitle,
             variantId:    "",
             variantTitle: "",
-            quantity:     data.totalInventory,
+            quantity:     data.variants.reduce(
+              (sum, variant) => sum + variant.onlineQuantity,
+              0,
+            ),
+            status:       data.status,
+            tracked:      data.variants.every((variant) => variant.tracked),
           },
         ];
 
@@ -102,8 +123,11 @@ async function evaluateTarget(
   const { shop, alertFrequency, alertOnLowStock, alertOnOutOfStock, lowStockThreshold } = settings;
 
   // Determine which alert types apply
-  const shouldCheckOutOfStock = alertOnOutOfStock && target.quantity <= 0;
+  const shouldCheckOutOfStock =
+    alertOnOutOfStock && target.status === "soldOut";
   const shouldCheckLowStock   = alertOnLowStock
+    && target.tracked
+    && target.status === "inStock"
     && target.quantity > 0
     && target.quantity <= lowStockThreshold;
 
@@ -449,65 +473,4 @@ function guessUtcOffsetHours(tz: string): number {
     "Pacific/Auckland":     12,
   };
   return table[tz] ?? 0;
-}
-
-// ─── Shopify inventory fetch ──────────────────────────────────
-
-interface ProductInventory {
-  productGid:     string;
-  productTitle:   string;
-  totalInventory: number;
-  variants: Array<{
-    id:               string;
-    title:            string;
-    inventoryQuantity: number;
-  }>;
-}
-
-async function fetchProductInventory(
-  admin:     AdminApiContext,
-  productId: string,
-): Promise<ProductInventory | null> {
-  try {
-    const response = await admin.graphql(
-      `#graphql
-      query getProductInventory($productId: ID!) {
-        product(id: $productId) {
-          id
-          title
-          totalInventory
-          variants(first: 100) {
-            edges {
-              node {
-                id
-                title
-                inventoryQuantity
-              }
-            }
-          }
-        }
-      }`,
-      { variables: { productId } },
-    );
-
-    const json     = await response.json();
-    const product  = json.data?.product;
-    if (!product) return null;
-
-    const variants = (product.variants?.edges ?? []).map((e: any) => ({
-      id:                e.node.id,
-      title:             e.node.title,
-      inventoryQuantity: e.node.inventoryQuantity ?? 0,
-    }));
-
-    return {
-      productGid:     product.id,
-      productTitle:   product.title,
-      totalInventory: product.totalInventory ?? 0,
-      variants,
-    };
-  } catch (err) {
-    console.error("[alerts] Failed to fetch product inventory:", err);
-    return null;
-  }
 }

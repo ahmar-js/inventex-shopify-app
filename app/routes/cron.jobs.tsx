@@ -1,9 +1,9 @@
 import type { ActionFunctionArgs } from "react-router";
-import { flushAlertQueue } from "../services/alerts.server";
 import {
   authorizeCronRequest,
   jsonResponse,
 } from "../services/cron-auth.server";
+import { runJobBatch } from "../services/jobs.server";
 import { logger } from "../services/logger.server";
 
 export const action = async ({ request }: ActionFunctionArgs) => {
@@ -11,12 +11,15 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   if (unauthorized) return unauthorized;
 
   try {
-    const result = await flushAlertQueue();
-    logger.info("Alert cron completed", { processed: result.processed });
-    return jsonResponse({ ok: true, processed: result.processed });
+    const result = await runJobBatch();
+    logger.info("Job cron completed", {
+      processed: result.processed,
+      failed: result.failed,
+    });
+    return jsonResponse({ ok: true, ...result });
   } catch (error) {
-    logger.error("Alert cron failed", { error });
-    return jsonResponse({ ok: false, error: "Alert queue flush failed" }, 500);
+    logger.error("Job cron failed", { error });
+    return jsonResponse({ ok: false, error: "Job worker failed" }, 500);
   }
 };
 

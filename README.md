@@ -79,12 +79,21 @@ For more information on the Shopify Dev MCP please read [the documentation](http
 
 ### Application Storage
 
-This template uses [Prisma](https://www.prisma.io/) to store session data, by default using an [SQLite](https://www.sqlite.org/index.html) database.
-The database is defined as a Prisma schema in `prisma/schema.prisma`.
+Inventex uses PostgreSQL through Prisma. Set `DATABASE_URL` before running the
+app or a migration command. The container entrypoint runs `prisma generate` and
+`prisma migrate deploy` before starting the web process.
 
-This use of SQLite works in production if your app runs as a single instance.
-The database that works best for you depends on the data your app needs and how it is queried.
-Here’s a short list of databases providers that provide a free tier to get started:
+Copy `.env.example` to `.env` for local configuration. In production,
+`CRON_SECRET` is mandatory: both `/cron/jobs` and `/cron/alerts` fail closed if
+it is missing. Schedule `POST /cron/jobs` every minute with the header
+`Authorization: Bearer <CRON_SECRET>`.
+
+The previous SQLite migration history was replaced with the PostgreSQL
+production baseline in `prisma/migrations`. The ignored `prisma/dev.sqlite`
+file is not deleted, but its data is not automatically imported into
+PostgreSQL.
+
+Common PostgreSQL hosting options include:
 
 | Database   | Type             | Hosters                                                                                                                                                                                                                                    |
 | ---------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -93,7 +102,7 @@ Here’s a short list of databases providers that provide a free tier to get sta
 | Redis      | Key-value        | [Digital Ocean](https://www.digitalocean.com/products/managed-databases-redis), [Amazon MemoryDB](https://aws.amazon.com/memorydb/)                                                                                                        |
 | MongoDB    | NoSQL / Document | [Digital Ocean](https://www.digitalocean.com/products/managed-databases-mongodb), [MongoDB Atlas](https://www.mongodb.com/atlas/database)                                                                                                  |
 
-To use one of these, you can use a different [datasource provider](https://www.prisma.io/docs/reference/api-reference/prisma-schema-reference#datasource) in your `schema.prisma` file, or a different [SessionStorage adapter package](https://github.com/Shopify/shopify-api-js/blob/main/packages/shopify-api/docs/guides/session-storage.md).
+Configure one of these services through `DATABASE_URL`.
 
 ### Build
 

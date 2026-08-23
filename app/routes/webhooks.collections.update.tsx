@@ -5,6 +5,6 @@ import {
 } from "../services/webhooks.server";
 
 export const action = async ({ request }: ActionFunctionArgs) => {
-  await authenticateAndEnqueueWebhook(request, JOB_TYPES.INVENTORY_UPDATE);
+  await authenticateAndEnqueueWebhook(request, JOB_TYPES.COLLECTION_UPDATE);
   return new Response();
 };

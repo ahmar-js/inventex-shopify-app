@@ -1,3 +1,9 @@
-.cache
-build
 node_modules
+build
+.react-router
+.git
+.env
+.env.*
+prisma/dev.sqlite
+prisma/dev.sqlite-journal
+npm-debug.log*

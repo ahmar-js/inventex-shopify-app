@@ -207,7 +207,7 @@ async function resolveProductId(
       `[inventory] Failed to resolve product for inventory item ${inventoryItemId}:`,
       error,
     );
-    return null;
+    throw error;
   }
 }
 
@@ -242,6 +242,7 @@ async function handleOutOfStock(
 
   let previousState: string | null = null;
   let errorMessage: string | null = null;
+  let caughtError: unknown = null;
 
   try {
     if (strategy === "HIDE") {
@@ -250,6 +251,7 @@ async function handleOutOfStock(
       previousState = await pushProductToBottom(admin, productId);
     }
   } catch (err: any) {
+    caughtError = err;
     errorMessage = err?.message ?? String(err);
     console.error(`[inventory] Error applying ${strategy} to ${productId}:`, err);
   }
@@ -275,6 +277,8 @@ async function handleOutOfStock(
       errorMessage,
     },
   });
+
+  if (caughtError) throw caughtError;
 }
 
 /**
@@ -349,7 +353,9 @@ async function hideProduct(
     const errors = unpubJson.data?.publishableUnpublish?.userErrors ?? [];
 
     if (errors.length > 0) {
-      console.error(`[inventory] Errors unpublishing ${productId}:`, errors);
+      throw new Error(
+        `Shopify rejected product unpublish: ${errors.map((error: { message?: string }) => error.message ?? "Unknown error").join("; ")}`,
+      );
     } else {
       console.log(
         `[inventory] Unpublished product ${productId} from ${publishedIds.length} channel(s).`,
@@ -359,7 +365,7 @@ async function hideProduct(
     return JSON.stringify(publishedIds);
   } catch (error) {
     console.error(`[inventory] Failed to hide product ${productId}:`, error);
-    return null;
+    throw error;
   }
 }
 
@@ -445,11 +451,9 @@ async function pushProductToBottom(
           updateJson.data?.collectionUpdate?.userErrors ?? [];
 
         if (updateErrors.length > 0) {
-          console.error(
-            `[inventory] Failed to set MANUAL sort on "${collection.title}":`,
-            updateErrors,
+          throw new Error(
+            `Shopify rejected MANUAL sort for "${collection.title}": ${updateErrors.map((error: { message?: string }) => error.message ?? "Unknown error").join("; ")}`,
           );
-          continue;
         }
       }
 
@@ -516,9 +520,8 @@ async function pushProductToBottom(
         reorderJson.data?.collectionReorderProducts?.userErrors ?? [];
 
       if (reorderErrors.length > 0) {
-        console.error(
-          `[inventory] Errors reordering in "${collection.title}":`,
-          reorderErrors,
+        throw new Error(
+          `Shopify rejected collection reorder for "${collection.title}": ${reorderErrors.map((error: { message?: string }) => error.message ?? "Unknown error").join("; ")}`,
         );
       } else {
         console.log(
@@ -533,7 +536,7 @@ async function pushProductToBottom(
       `[inventory] Failed to push product ${productId} to bottom:`,
       error,
     );
-    return null;
+    throw error;
   }
 }
 
@@ -580,6 +583,7 @@ async function handleBackInStock(
   );
 
   let errorMessage: string | null = null;
+  let caughtError: unknown = null;
 
   try {
     if (existing.action === "HIDDEN") {
@@ -588,6 +592,7 @@ async function handleBackInStock(
       await restoreCollectionSortOrder(admin, existing.previousState);
     }
   } catch (err: any) {
+    caughtError = err;
     errorMessage = err?.message ?? String(err);
     console.error(`[inventory] Error restoring ${productId}:`, err);
   }
@@ -601,6 +606,8 @@ async function handleBackInStock(
       errorMessage,
     },
   });
+
+  if (caughtError) throw caughtError;
 }
 
 /**
@@ -653,7 +660,9 @@ async function restoreProduct(
     const errors = pubJson.data?.publishablePublish?.userErrors ?? [];
 
     if (errors.length > 0) {
-      console.error(`[inventory] Errors republishing ${productId}:`, errors);
+      throw new Error(
+        `Shopify rejected product republish: ${errors.map((error: { message?: string }) => error.message ?? "Unknown error").join("; ")}`,
+      );
     } else {
       console.log(
         `[inventory] Republished product ${productId} to ${publishedChannels.length} channel(s).`,
@@ -664,6 +673,7 @@ async function restoreProduct(
       `[inventory] Failed to restore product ${productId}:`,
       error,
     );
+    throw error;
   }
 }
 
@@ -728,9 +738,8 @@ async function restoreCollectionSortOrder(
       const errors = json.data?.collectionUpdate?.userErrors ?? [];
 
       if (errors.length > 0) {
-        console.error(
-          `[inventory] Errors restoring sort order for "${col.title}":`,
-          errors,
+        throw new Error(
+          `Shopify rejected sort restore for "${col.title}": ${errors.map((error: { message?: string }) => error.message ?? "Unknown error").join("; ")}`,
         );
       } else {
         console.log(
@@ -740,6 +749,7 @@ async function restoreCollectionSortOrder(
     }
   } catch (error) {
     console.error(`[inventory] Failed to restore collection sort order:`, error);
+    throw error;
   }
 }
 
