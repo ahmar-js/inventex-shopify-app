@@ -9,7 +9,7 @@ import { authenticate } from "../shopify.server";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { useAppBridge } from "@shopify/app-bridge-react";
 import db from "../db.server";
-import { scanExistingProducts } from "../services/inventory.server";
+import { enqueueHideCatalogScan } from "../services/webhooks.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
@@ -17,13 +17,10 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
   const settings = await db.shopSettings.findUnique({ where: { shop } });
 
-  const [hiddenCount, pushedDownCount, restoredCount, totalTracked, errorCount] =
+  const [hiddenCount, restoredCount, totalTracked, errorCount] =
     await Promise.all([
       db.inventoryState.count({
         where: { shop, action: "HIDDEN", restored: false },
-      }),
-      db.inventoryState.count({
-        where: { shop, action: "PUSHED_DOWN", restored: false },
       }),
       db.inventoryState.count({
         where: { shop, restored: true },
@@ -37,11 +34,8 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     ]);
 
   return {
-    enabled: settings?.enabled ?? false,
-    strategy: settings?.strategy ?? "HIDE",
-    restoreBehavior: settings?.restoreBehavior ?? "ALWAYS",
+    enabled: settings?.hideEnabled ?? false,
     hiddenCount,
-    pushedDownCount,
     restoredCount,
     totalTracked,
     errorCount,
@@ -51,29 +45,32 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 // ─── Action: handle Scan Now ─────────────────────────────────
 
 export const action = async ({ request }: ActionFunctionArgs) => {
-  const { session, admin } = await authenticate.admin(request);
+  const { session } = await authenticate.admin(request);
   const shop = session.shop;
-
-  const result = await scanExistingProducts(admin, shop);
-
-  return {
-    scan: true,
-    processed: result.processed,
-    affected: result.affected,
-  };
+  const settings = await db.shopSettings.findUnique({ where: { shop } });
+  if (!settings?.hideEnabled) {
+    return { scan: false, error: "Enable hiding before scanning." };
+  }
+  if (settings.hideJobId) {
+    const activeJob = await db.job.findFirst({
+      where: { id: settings.hideJobId, shop },
+      select: { status: true },
+    });
+    if (activeJob?.status === "PENDING" || activeJob?.status === "PROCESSING") {
+      return { scan: false, error: "A catalog hide job is already running." };
+    }
+  }
+  const result = await enqueueHideCatalogScan(shop);
+  await db.shopSettings.update({
+    where: { shop },
+    data: { hideJobId: result.job.id },
+  });
+  return { scan: true, queued: true };
 };
 
 export default function Dashboard() {
-  const {
-    enabled,
-    strategy,
-    restoreBehavior,
-    hiddenCount,
-    pushedDownCount,
-    restoredCount,
-    totalTracked,
-    errorCount,
-  } = useLoaderData<typeof loader>();
+  const { enabled, hiddenCount, restoredCount, totalTracked, errorCount } =
+    useLoaderData<typeof loader>();
 
   const fetcher = useFetcher<typeof action>();
   const shopify = useAppBridge();
@@ -82,19 +79,11 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (fetcher.data?.scan) {
-      shopify.toast.show(
-        `Scan complete: ${fetcher.data.processed} products checked, ${fetcher.data.affected} updated`,
-      );
+      shopify.toast.show("Catalog scan queued.");
+    } else if (fetcher.data?.error) {
+      shopify.toast.show(fetcher.data.error, { isError: true });
     }
   }, [fetcher.data, shopify]);
-
-  const strategyLabel = strategy === "HIDE" ? "Hide product" : "Push to bottom";
-  const restoreLabel =
-    restoreBehavior === "ALWAYS"
-      ? "Always restore"
-      : restoreBehavior === "CONDITIONAL"
-        ? "Only if app modified"
-        : "Do nothing";
 
   return (
     <s-page heading="Dashboard">
@@ -116,17 +105,13 @@ export default function Dashboard() {
               <s-text>{enabled ? "Enabled" : "Disabled"}</s-text>
             </s-stack>
             <s-stack direction="inline" gap="base">
-              <s-text type="strong">Strategy:</s-text>
-              <s-text>{strategyLabel}</s-text>
-            </s-stack>
-            <s-stack direction="inline" gap="base">
-              <s-text type="strong">Restore:</s-text>
-              <s-text>{restoreLabel}</s-text>
+              <s-text type="strong">Mode:</s-text>
+              <s-text>Online Store hide/unhide</s-text>
             </s-stack>
             {!enabled && (
               <s-paragraph>
                 Automation is disabled.{" "}
-                <s-link href="/app/settings">Enable it in Settings</s-link> to
+                <s-link href="/app/hide">Enable it in Hide Products</s-link> to
                 start managing inventory visibility.
               </s-paragraph>
             )}
@@ -141,12 +126,6 @@ export default function Dashboard() {
             <s-stack direction="block" gap="small">
               <s-text color="subdued">Hidden Products</s-text>
               <s-heading>{hiddenCount}</s-heading>
-            </s-stack>
-          </s-box>
-          <s-box padding="base" borderWidth="base" borderRadius="base">
-            <s-stack direction="block" gap="small">
-              <s-text color="subdued">Repositioned</s-text>
-              <s-heading>{pushedDownCount}</s-heading>
             </s-stack>
           </s-box>
           <s-box padding="base" borderWidth="base" borderRadius="base">
@@ -169,9 +148,7 @@ export default function Dashboard() {
                   {errorCount}
                 </s-text>
               </s-heading>
-              {errorCount > 0 && (
-                <s-link href="/app/logs">View in Logs</s-link>
-              )}
+              {errorCount > 0 && <s-link href="/app/logs">View in Logs</s-link>}
             </s-stack>
           </s-box>
         </s-stack>
@@ -180,6 +157,9 @@ export default function Dashboard() {
       {/* ── Sidebar ──────────────────────────────── */}
       <s-section slot="aside" heading="Quick Links">
         <s-unordered-list>
+          <s-list-item>
+            <s-link href="/app/hide">Hide Products</s-link>
+          </s-list-item>
           <s-list-item>
             <s-link href="/app/settings">Settings</s-link>
           </s-list-item>
@@ -191,9 +171,8 @@ export default function Dashboard() {
 
       <s-section slot="aside" heading="How It Works">
         <s-paragraph>
-          When a product's inventory reaches zero, the app automatically applies
-          your chosen strategy. When inventory is replenished, the app restores
-          the product based on your restore settings.
+          Sold-out products are removed only from Online Store after your
+          configured delay. Restocked products are published back automatically.
         </s-paragraph>
       </s-section>
     </s-page>

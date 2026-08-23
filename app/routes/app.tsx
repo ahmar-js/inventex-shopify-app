@@ -20,6 +20,7 @@ export default function App() {
       <s-app-nav>
         <s-link href="/app">Dashboard</s-link>
         <s-link href="/app/settings">Settings</s-link>
+        <s-link href="/app/hide">Hide Products</s-link>
         <s-link href="/app/sort-collection">Sort Collections</s-link>
         <s-link href="/app/alerts">Alerts</s-link>
         <s-link href="/app/logs">Activity Logs</s-link>

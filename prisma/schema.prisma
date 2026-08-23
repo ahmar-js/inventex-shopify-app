@@ -58,6 +58,18 @@ model ShopSettings {
   sortContinueSellingAsOos Boolean  @default(false)
   /// Automatically enable sorting when Shopify creates a collection.
   autoSortNewCollections   Boolean  @default(true)
+  /// Store-wide Online Store hiding master switch.
+  hideEnabled              Boolean  @default(false)
+  /// Days to wait after soldOutAt before hiding a product.
+  hideDelayDays            Int      @default(0)
+  /// none | home | custom
+  redirectMode             String   @default("none")
+  /// Same-store path used when redirectMode is custom.
+  redirectPath             String   @default("/")
+  /// Cached Online Store publication GID.
+  onlineStorePublicationId String?
+  /// Catalog scan or republish-all job currently locking hide settings.
+  hideJobId                String?
   createdAt                DateTime @default(now())
   updatedAt                DateTime @updatedAt
 }
@@ -68,10 +80,14 @@ model InventoryState {
   id            Int       @id @default(autoincrement())
   shop          String
   productId     String
+  productTitle  String    @default("")
+  productHandle String?
   /// HIDDEN or PUSHED_DOWN — what the app did to this product
   action        String
   /// Original publication IDs / collection positions, serialized JSON
   previousState String?
+  /// Redirect created by Inventex for this hidden product.
+  redirectId    String?
   /// Timestamp of when the app modified this product
   modifiedAt    DateTime  @default(now())
   /// Whether this product has been restored already

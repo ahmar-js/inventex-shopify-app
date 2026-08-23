@@ -3,6 +3,7 @@ import db from "../db.server";
 import { authenticate } from "../shopify.server";
 import { logger } from "./logger.server";
 import { collectionSortDelayMs } from "./collection-sort";
+import { hideRunAfter } from "./hide";
 
 export const JOB_TYPES = {
   INVENTORY_UPDATE: "INVENTORY_UPDATE",
@@ -16,6 +17,10 @@ export const JOB_TYPES = {
   DISABLE_COLLECTION_SORT: "DISABLE_COLLECTION_SORT",
   UPDATE_COLLECTION_BASE_ORDER: "UPDATE_COLLECTION_BASE_ORDER",
   SORT_COLLECTION: "SORT_COLLECTION",
+  HIDE_PRODUCT: "HIDE_PRODUCT",
+  UNHIDE_PRODUCT: "UNHIDE_PRODUCT",
+  CATALOG_HIDE_SCAN: "CATALOG_HIDE_SCAN",
+  REPUBLISH_HIDDEN_PRODUCTS: "REPUBLISH_HIDDEN_PRODUCTS",
   APP_UNINSTALLED: "APP_UNINSTALLED",
   CUSTOMERS_DATA_REQUEST: "CUSTOMERS_DATA_REQUEST",
   CUSTOMERS_REDACT: "CUSTOMERS_REDACT",
@@ -58,7 +63,12 @@ export async function enqueueProductEvaluation(input: {
   shop: string;
   productId: string;
   sourceJobId: string;
-  reason: "inventory" | "productUpdate" | "collectionBootstrap";
+  reason:
+    | "inventory"
+    | "productUpdate"
+    | "collectionBootstrap"
+    | "hideScan"
+    | "ignoreChanged";
 }) {
   return enqueueJob({
     shop: input.shop,
@@ -71,6 +81,89 @@ export async function enqueueProductEvaluation(input: {
         sourceJobId: input.sourceJobId,
       },
     },
+  });
+}
+
+export async function enqueueHideProduct(input: {
+  shop: string;
+  productId: string;
+  soldOutAt: Date;
+  delayDays: number;
+  sourceJobId: string;
+}) {
+  return enqueueReplaceableJob({
+    shop: input.shop,
+    type: JOB_TYPES.HIDE_PRODUCT,
+    uniqueKey: `hide:${input.shop}:${input.productId}`,
+    runAfter: hideRunAfter(input.soldOutAt, input.delayDays),
+    payload: {
+      data: {
+        productId: input.productId,
+        soldOutAt: input.soldOutAt.toISOString(),
+        delayDays: input.delayDays,
+        sourceJobId: input.sourceJobId,
+      },
+    },
+  });
+}
+
+export async function enqueueUnhideProduct(input: {
+  shop: string;
+  productId: string;
+  sourceJobId: string;
+  reason: "available" | "ignored" | "hideDisabled";
+}) {
+  return enqueueReplaceableJob({
+    shop: input.shop,
+    type: JOB_TYPES.UNHIDE_PRODUCT,
+    uniqueKey: `unhide:${input.shop}:${input.productId}`,
+    payload: {
+      data: {
+        productId: input.productId,
+        sourceJobId: input.sourceJobId,
+        reason: input.reason,
+      },
+    },
+  });
+}
+
+export async function enqueueHideCatalogScan(shop: string) {
+  return enqueueReplaceableJob({
+    shop,
+    type: JOB_TYPES.CATALOG_HIDE_SCAN,
+    uniqueKey: `hide-scan:${shop}`,
+    payload: { data: { reason: "hideEnabled" } },
+  });
+}
+
+export async function enqueueRepublishHiddenProducts(shop: string) {
+  return enqueueReplaceableJob({
+    shop,
+    type: JOB_TYPES.REPUBLISH_HIDDEN_PRODUCTS,
+    uniqueKey: `republish-hidden:${shop}`,
+    payload: { data: { reason: "hideDisabled" } },
+  });
+}
+
+export async function cancelPendingProductHide(
+  shop: string,
+  productId: string,
+) {
+  return db.job.updateMany({
+    where: {
+      shop,
+      type: JOB_TYPES.HIDE_PRODUCT,
+      uniqueKey: `hide:${shop}:${productId}`,
+      status: "PENDING",
+    },
+    data: { status: "COMPLETED", lockedAt: null, lastError: null },
+  });
+}
+
+export async function cancelAllPendingProductHides(shop: string) {
+  return db.job.updateMany({
+    where: { shop, type: JOB_TYPES.HIDE_PRODUCT, status: "PENDING" },
+    data: { status: "COMPLETED", lockedAt: null, lastError: null },
   });
 }
 

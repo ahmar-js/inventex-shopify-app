@@ -18,6 +18,14 @@ import {
   updateCollectionBaseOrderNow,
 } from "./collection-sort.server";
 import { logger } from "./logger.server";
+import {
+  clearHideJobLock,
+  enqueueCatalogProductEvaluations,
+  hideProductFromOnlineStore,
+  republishAllInventexHidden,
+  syncHideAutomationForAvailability,
+  unhideProductToOnlineStore,
+} from "./hide.server";
 import { enqueueProductEvaluation, JOB_TYPES } from "./webhooks.server";
 
 const MAX_BATCH_SIZE = 25;
@@ -188,27 +196,12 @@ async function processJob(job: Job) {
         job.shop,
         productId,
       );
-      await db.productAvailabilityState.upsert({
-        where: { shop_productId: { shop: job.shop, productId } },
-        update: {
-          status: availability.status,
-          ignored: availability.ignored,
-          soldOutAt: availability.soldOutAt,
-          variants: toJson(availability.variants),
-          evaluatedAt: availability.evaluatedAt,
-        },
-        create: {
-          shop: job.shop,
-          productId,
-          status: availability.status,
-          ignored: availability.ignored,
-          soldOutAt: availability.soldOutAt,
-          variants: toJson(availability.variants),
-          evaluatedAt: availability.evaluatedAt,
-        },
-      });
-      await maybeFireAlertsForAvailability(job.shop, availability);
-      if (data.reason !== "collectionBootstrap") {
+      await persistProductAvailability(job.shop, availability);
+      await syncHideAutomationForAvailability(job.shop, availability, job.id);
+      if (data.reason !== "hideScan") {
+        await maybeFireAlertsForAvailability(job.shop, availability);
+      }
+      if (data.reason !== "collectionBootstrap" && data.reason !== "hideScan") {
         await enqueueSortsForProduct(admin, job.shop, productId);
       }
       logger.info("Product availability evaluated", {
@@ -224,6 +217,80 @@ async function processJob(job: Job) {
       }
       throw error;
     }
+    return;
+  }
+
+  if (job.type === JOB_TYPES.HIDE_PRODUCT) {
+    const productId = productGidFromPayload(data);
+    if (!productId) throw new Error("Hide job is missing productId");
+    const { admin } = await unauthenticated.admin(job.shop);
+    try {
+      const availability = await evaluateProductAvailability(
+        admin,
+        job.shop,
+        productId,
+      );
+      await persistProductAvailability(job.shop, availability);
+      if (availability.status !== "soldOut" || availability.ignored) {
+        await syncHideAutomationForAvailability(job.shop, availability, job.id);
+        return;
+      }
+      await hideProductFromOnlineStore(admin, job.shop, productId);
+    } catch (error) {
+      if (error instanceof ProductNotFoundError) {
+        await db.productAvailabilityState.deleteMany({
+          where: { shop: job.shop, productId },
+        });
+        return;
+      }
+      throw error;
+    }
+    return;
+  }
+
+  if (job.type === JOB_TYPES.UNHIDE_PRODUCT) {
+    const productId = productGidFromPayload(data);
+    if (!productId) throw new Error("Unhide job is missing productId");
+    const { admin } = await unauthenticated.admin(job.shop);
+    await unhideProductToOnlineStore(admin, job.shop, productId);
+    return;
+  }
+
+  if (job.type === JOB_TYPES.CATALOG_HIDE_SCAN) {
+    const settings = await db.shopSettings.findUnique({
+      where: { shop: job.shop },
+      select: { hideEnabled: true },
+    });
+    if (settings?.hideEnabled) {
+      const { admin } = await unauthenticated.admin(job.shop);
+      const productCount = await enqueueCatalogProductEvaluations(
+        admin,
+        job.shop,
+        job.id,
+      );
+      logger.info("Hide catalog scan dispatched", {
+        ...jobContext(job),
+        productCount,
+      });
+    }
+    await clearHideJobLock(job.shop, job.id);
+    return;
+  }
+
+  if (job.type === JOB_TYPES.REPUBLISH_HIDDEN_PRODUCTS) {
+    const settings = await db.shopSettings.findUnique({
+      where: { shop: job.shop },
+      select: { hideEnabled: true },
+    });
+    if (!settings?.hideEnabled) {
+      const { admin } = await unauthenticated.admin(job.shop);
+      const productCount = await republishAllInventexHidden(admin, job.shop);
+      logger.info("Inventex-hidden catalog restored", {
+        ...jobContext(job),
+        productCount,
+      });
+    }
+    await clearHideJobLock(job.shop, job.id);
     return;
   }
 
@@ -337,6 +404,7 @@ async function deferJob(job: Job, error: CollectionSortDeferredError) {
       lastError: null,
     },
   });
+
   logger.info("Job deferred", {
     ...jobContext(job),
     runAfter: error.runAfter,
@@ -366,6 +434,14 @@ async function rescheduleOrFail(job: Job, error: unknown) {
           lastError,
         },
   });
+
+  if (
+    !shouldRetry &&
+    (job.type === JOB_TYPES.CATALOG_HIDE_SCAN ||
+      job.type === JOB_TYPES.REPUBLISH_HIDDEN_PRODUCTS)
+  ) {
+    await clearHideJobLock(job.shop, job.id);
+  }
 
   logger[shouldRetry ? "warn" : "error"](
     shouldRetry ? "Job scheduled for retry" : "Job failed permanently",
@@ -449,6 +525,13 @@ function resourceContext(jobType: string, payload: Record<string, unknown>) {
   if (jobType === JOB_TYPES.EVALUATE_PRODUCT && payload.productId) {
     return { productId: String(payload.productId) };
   }
+  if (
+    (jobType === JOB_TYPES.HIDE_PRODUCT ||
+      jobType === JOB_TYPES.UNHIDE_PRODUCT) &&
+    payload.productId
+  ) {
+    return { productId: String(payload.productId) };
+  }
   if (payload.inventory_item_id) {
     return { inventoryItemId: String(payload.inventory_item_id) };
   }
@@ -470,4 +553,24 @@ function collectionGidFromPayload(payload: Record<string, unknown>) {
 
 function toJson(value: unknown): Prisma.InputJsonValue {
   return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
+}
+
+async function persistProductAvailability(
+  shop: string,
+  availability: Awaited<ReturnType<typeof evaluateProductAvailability>>,
+) {
+  const data = {
+    status: availability.status,
+    ignored: availability.ignored,
+    soldOutAt: availability.soldOutAt,
+    variants: toJson(availability.variants),
+    evaluatedAt: availability.evaluatedAt,
+  };
+  await db.productAvailabilityState.upsert({
+    where: {
+      shop_productId: { shop, productId: availability.productId },
+    },
+    update: data,
+    create: { shop, productId: availability.productId, ...data },
+  });
 }
