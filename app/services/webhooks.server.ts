@@ -1,4 +1,4 @@
-import { Prisma } from "@prisma/client";
+import type { Prisma } from "@prisma/client";
 import db from "../db.server";
 import { authenticate } from "../shopify.server";
 import { logger } from "./logger.server";
@@ -85,10 +85,7 @@ export async function enqueueJob(input: EnqueueJobInput) {
     });
     return { job, duplicate: false };
   } catch (error) {
-    if (
-      error instanceof Prisma.PrismaClientKnownRequestError &&
-      error.code === "P2002"
-    ) {
+    if (isUniqueConstraintError(error)) {
       const job = await db.job.findUniqueOrThrow({
         where: {
           shop_uniqueKey: {
@@ -101,6 +98,15 @@ export async function enqueueJob(input: EnqueueJobInput) {
     }
     throw error;
   }
+}
+
+function isUniqueConstraintError(error: unknown): error is { code: "P2002" } {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === "P2002"
+  );
 }
 
 export async function authenticateAndEnqueueWebhook(

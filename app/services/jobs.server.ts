@@ -1,4 +1,4 @@
-import { JobStatus, Prisma, type Job } from "@prisma/client";
+import type { Job, Prisma } from "@prisma/client";
 import db from "../db.server";
 import { unauthenticated } from "../shopify.server";
 import {
@@ -14,6 +14,13 @@ const MAX_BATCH_SIZE = 25;
 const STALE_LOCK_MINUTES = 15;
 const MAX_THROTTLE_ATTEMPTS = 8;
 const MAX_GENERAL_ATTEMPTS = 3;
+
+const JobStatus = {
+  PENDING: "PENDING",
+  PROCESSING: "PROCESSING",
+  COMPLETED: "COMPLETED",
+  FAILED: "FAILED",
+} as const;
 
 interface WebhookJobPayload {
   webhookId?: string;
@@ -50,8 +57,7 @@ export async function runJobBatch(limit = 10) {
 
 async function claimJobs(limit: number): Promise<Job[]> {
   return db.$transaction(async (transaction) => {
-    const candidates = await transaction.$queryRaw<Array<{ id: string }>>(
-      Prisma.sql`
+    const candidates = await transaction.$queryRaw<Array<{ id: string }>>`
         SELECT "id"
         FROM "Job"
         WHERE (
@@ -65,8 +71,7 @@ async function claimJobs(limit: number): Promise<Job[]> {
         ORDER BY "runAfter" ASC, "createdAt" ASC
         LIMIT ${limit}
         FOR UPDATE SKIP LOCKED
-      `,
-    );
+      `;
 
     if (candidates.length === 0) return [];
     const ids = candidates.map(({ id }) => id);
