@@ -22,7 +22,8 @@
     "test:phase1": "node --test tests/availability.test.mjs tests/phase1.static.test.mjs",
     "test:phase2": "node --test tests/collection-sort.test.mjs tests/phase2.static.test.mjs",
     "test:phase3": "node --test tests/hide.test.mjs tests/phase3.static.test.mjs",
-    "test:phase4": "node --test tests/alerts-schedule.test.mjs tests/variant-hide.test.mjs tests/phase4.static.test.mjs"
+    "test:phase4": "node --test tests/alerts-schedule.test.mjs tests/variant-hide.test.mjs tests/phase4.static.test.mjs",
+    "test:phase5": "node --test tests/billing.test.mjs tests/phase5.static.test.mjs"
   },
   "type": "module",
   "engines": {

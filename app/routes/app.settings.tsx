@@ -21,6 +21,8 @@ import {
   enqueueRepublishHiddenVariants,
   enqueueVariantHideScan,
 } from "../services/webhooks.server";
+import { getBillingAccess } from "../services/billing.server";
+import { billingAccessMessage } from "../services/billing";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
@@ -60,7 +62,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
-  const { session } = await authenticate.admin(request);
+  const { admin, session } = await authenticate.admin(request);
   const shop = session.shop;
   const formData = await request.formData();
   const redirectMode = normalizeRedirectMode(
@@ -105,6 +107,15 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   }
 
   const variantHideEnabled = formData.get("variantHideEnabled") === "true";
+  if (variantHideEnabled) {
+    const billing = await getBillingAccess({ admin, session, force: true });
+    if (!billing.accessAllowed) {
+      return {
+        success: false as const,
+        error: billingAccessMessage(billing) ?? "Automation requires a plan.",
+      };
+    }
+  }
   const variantSettingChanged =
     variantHideEnabled !== (current?.variantHideEnabled ?? false);
 

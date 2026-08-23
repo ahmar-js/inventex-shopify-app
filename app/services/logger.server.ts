@@ -15,6 +15,8 @@ export interface LogContext {
   variantCount?: number;
   dispatched?: number;
   eligible?: boolean;
+  accessAllowed?: boolean;
+  billingPlan?: string;
   sortOrder?: string;
   attempts?: number;
   delayMs?: number;

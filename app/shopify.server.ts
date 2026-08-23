@@ -2,10 +2,12 @@ import "@shopify/shopify-app-react-router/adapters/node";
 import {
   ApiVersion,
   AppDistribution,
+  BillingInterval,
   shopifyApp,
 } from "@shopify/shopify-app-react-router/server";
 import { PrismaSessionStorage } from "@shopify/shopify-app-session-storage-prisma";
 import prisma from "./db.server";
+import { BILLING_PLAN_NAMES, BILLING_TRIAL_DAYS } from "./services/billing";
 
 const shopify = shopifyApp({
   apiKey: process.env.SHOPIFY_API_KEY,
@@ -16,6 +18,48 @@ const shopify = shopifyApp({
   authPathPrefix: "/auth",
   sessionStorage: new PrismaSessionStorage(prisma),
   distribution: AppDistribution.AppStore,
+  billing: {
+    [BILLING_PLAN_NAMES.STARTER]: {
+      trialDays: BILLING_TRIAL_DAYS,
+      lineItems: [
+        {
+          amount: 9.99,
+          currencyCode: "USD",
+          interval: BillingInterval.Every30Days,
+        },
+      ],
+    },
+    [BILLING_PLAN_NAMES.GROWTH]: {
+      trialDays: BILLING_TRIAL_DAYS,
+      lineItems: [
+        {
+          amount: 14.99,
+          currencyCode: "USD",
+          interval: BillingInterval.Every30Days,
+        },
+      ],
+    },
+    [BILLING_PLAN_NAMES.PRO]: {
+      trialDays: BILLING_TRIAL_DAYS,
+      lineItems: [
+        {
+          amount: 19.99,
+          currencyCode: "USD",
+          interval: BillingInterval.Every30Days,
+        },
+      ],
+    },
+    [BILLING_PLAN_NAMES.ENTERPRISE]: {
+      trialDays: BILLING_TRIAL_DAYS,
+      lineItems: [
+        {
+          amount: 39.99,
+          currencyCode: "USD",
+          interval: BillingInterval.Every30Days,
+        },
+      ],
+    },
+  },
   hooks: {
     afterAuth: async ({ session }) => {
       await prisma.shopSettings.upsert({

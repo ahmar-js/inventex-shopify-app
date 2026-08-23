@@ -3,50 +3,122 @@ import type {
   HeadersFunction,
   LoaderFunctionArgs,
 } from "react-router";
-import { useLoaderData, useFetcher } from "react-router";
+import { Form, redirect, useFetcher, useLoaderData } from "react-router";
 import { useEffect } from "react";
 import { authenticate } from "../shopify.server";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { useAppBridge } from "@shopify/app-bridge-react";
 import db from "../db.server";
-import { enqueueHideCatalogScan } from "../services/webhooks.server";
+import {
+  enqueueHideCatalogScan,
+  JOB_TYPES,
+} from "../services/webhooks.server";
+import { getBillingAccess } from "../services/billing.server";
+import { billingAccessMessage } from "../services/billing";
+
+const RUNNING_STATUSES = ["PENDING", "PROCESSING"] as const;
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { session } = await authenticate.admin(request);
+  const { admin, session } = await authenticate.admin(request);
   const shop = session.shop;
+  const [settings, alertSettings, billing] = await Promise.all([
+    db.shopSettings.findUnique({ where: { shop } }),
+    db.alertSettings.findUnique({ where: { shop } }),
+    getBillingAccess({ admin, session, force: true }),
+  ]);
 
-  const settings = await db.shopSettings.findUnique({ where: { shop } });
-
-  const [hiddenCount, restoredCount, totalTracked, errorCount] =
-    await Promise.all([
-      db.inventoryState.count({
-        where: { shop, action: "HIDDEN", restored: false },
-      }),
-      db.inventoryState.count({
-        where: { shop, restored: true },
-      }),
-      db.inventoryState.count({
-        where: { shop },
-      }),
-      db.inventoryState.count({
-        where: { shop, error: true },
-      }),
-    ]);
+  const [
+    sortingCount,
+    hiddenCount,
+    hiddenVariantCount,
+    errorCount,
+    queuedAlertCount,
+    sortingJobCount,
+    hidingJobCount,
+  ] = await Promise.all([
+    db.collectionAutoSorting.count({ where: { shop, enabled: true } }),
+    db.inventoryState.count({
+      where: { shop, action: "HIDDEN", restored: false },
+    }),
+    db.variantInventoryState.count({ where: { shop, restored: false } }),
+    db.inventoryState.count({ where: { shop, error: true } }),
+    db.alertQueue.count({ where: { shop, processed: false } }),
+    db.job.count({
+      where: {
+        shop,
+        status: { in: [...RUNNING_STATUSES] },
+        type: {
+          in: [
+            JOB_TYPES.ENABLE_COLLECTION_SORT,
+            JOB_TYPES.DISABLE_COLLECTION_SORT,
+            JOB_TYPES.UPDATE_COLLECTION_BASE_ORDER,
+            JOB_TYPES.SORT_COLLECTION,
+          ],
+        },
+      },
+    }),
+    db.job.count({
+      where: {
+        shop,
+        status: { in: [...RUNNING_STATUSES] },
+        type: {
+          in: [
+            JOB_TYPES.CATALOG_HIDE_SCAN,
+            JOB_TYPES.HIDE_PRODUCT,
+            JOB_TYPES.UNHIDE_PRODUCT,
+            JOB_TYPES.REPUBLISH_HIDDEN_PRODUCTS,
+            JOB_TYPES.VARIANT_HIDE_SCAN,
+            JOB_TYPES.HIDE_VARIANT,
+            JOB_TYPES.UNHIDE_VARIANT,
+            JOB_TYPES.REPUBLISH_HIDDEN_VARIANTS,
+          ],
+        },
+      },
+    }),
+  ]);
 
   return {
-    enabled: settings?.hideEnabled ?? false,
-    hiddenCount,
-    restoredCount,
-    totalTracked,
+    billing,
+    onboardingCompleted: settings?.onboardingCompleted ?? false,
+    onboardingChoice: settings?.onboardingChoice ?? null,
+    sorting: { activeCount: sortingCount, runningJobs: sortingJobCount },
+    hiding: {
+      enabled: settings?.hideEnabled ?? false,
+      hiddenCount,
+      hiddenVariantCount,
+      runningJobs: hidingJobCount,
+    },
+    alerts: {
+      enabled: alertSettings?.lowStockEnabled ?? false,
+      queuedCount: queuedAlertCount,
+    },
     errorCount,
   };
 };
 
-// ─── Action: handle Scan Now ─────────────────────────────────
-
 export const action = async ({ request }: ActionFunctionArgs) => {
-  const { session } = await authenticate.admin(request);
+  const { admin, session } = await authenticate.admin(request);
   const shop = session.shop;
+  const formData = await request.formData();
+  const action = String(formData.get("_action") ?? "scanNow");
+
+  if (action === "chooseOnboarding") {
+    const choice = formData.get("choice") === "SORT" ? "SORT" : "HIDE";
+    await db.shopSettings.upsert({
+      where: { shop },
+      update: { onboardingChoice: choice, onboardingCompleted: true },
+      create: { shop, onboardingChoice: choice, onboardingCompleted: true },
+    });
+    return redirect(choice === "SORT" ? "/app/sort-collection" : "/app/hide");
+  }
+
+  const billing = await getBillingAccess({ admin, session, force: true });
+  if (!billing.accessAllowed) {
+    return {
+      scan: false,
+      error: billingAccessMessage(billing) ?? "Automation requires a plan.",
+    };
+  }
   const settings = await db.shopSettings.findUnique({ where: { shop } });
   if (!settings?.hideEnabled) {
     return { scan: false, error: "Enable hiding before scanning." };
@@ -69,116 +141,176 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 };
 
 export default function Dashboard() {
-  const { enabled, hiddenCount, restoredCount, totalTracked, errorCount } =
-    useLoaderData<typeof loader>();
-
+  const data = useLoaderData<typeof loader>();
   const fetcher = useFetcher<typeof action>();
   const shopify = useAppBridge();
-  const isScanning =
-    fetcher.state === "submitting" || fetcher.state === "loading";
+  const isScanning = fetcher.state !== "idle";
 
   useEffect(() => {
-    if (fetcher.data?.scan) {
+    if (fetcher.data && "scan" in fetcher.data && fetcher.data.scan) {
       shopify.toast.show("Catalog scan queued.");
-    } else if (fetcher.data?.error) {
-      shopify.toast.show(fetcher.data.error, { isError: true });
+    } else if (fetcher.data && "error" in fetcher.data) {
+      shopify.toast.show(fetcher.data.error ?? "Catalog scan failed.", {
+        isError: true,
+      });
     }
   }, [fetcher.data, shopify]);
+
+  const paused = !data.billing.accessAllowed;
 
   return (
     <s-page heading="Dashboard">
       <s-button
         slot="primary-action"
         variant="primary"
-        onClick={() => fetcher.submit({}, { method: "POST" })}
+        onClick={() =>
+          fetcher.submit({ _action: "scanNow" }, { method: "POST" })
+        }
         {...(isScanning ? { loading: true } : {})}
-        {...(!enabled ? { disabled: true } : {})}
+        disabled={!data.hiding.enabled || paused}
       >
         Scan Now
       </s-button>
-      {/* ── Automation Status Banner ─────────────── */}
-      <s-section heading="Automation Status">
-        <s-box padding="base" borderWidth="base" borderRadius="base">
-          <s-stack direction="block" gap="base">
-            <s-stack direction="inline" gap="base">
-              <s-text type="strong">Status:</s-text>
-              <s-text>{enabled ? "Enabled" : "Disabled"}</s-text>
-            </s-stack>
-            <s-stack direction="inline" gap="base">
-              <s-text type="strong">Mode:</s-text>
-              <s-text>Online Store hide/unhide</s-text>
-            </s-stack>
-            {!enabled && (
-              <s-paragraph>
-                Automation is disabled.{" "}
-                <s-link href="/app/hide">Enable it in Hide Products</s-link> to
-                start managing inventory visibility.
-              </s-paragraph>
-            )}
-          </s-stack>
-        </s-box>
-      </s-section>
 
-      {/* ── Quick Stats ──────────────────────────── */}
-      <s-section heading="Quick Stats">
-        <s-stack direction="inline" gap="base">
-          <s-box padding="base" borderWidth="base" borderRadius="base">
-            <s-stack direction="block" gap="small">
-              <s-text color="subdued">Hidden Products</s-text>
-              <s-heading>{hiddenCount}</s-heading>
-            </s-stack>
-          </s-box>
-          <s-box padding="base" borderWidth="base" borderRadius="base">
-            <s-stack direction="block" gap="small">
-              <s-text color="subdued">Restored</s-text>
-              <s-heading>{restoredCount}</s-heading>
-            </s-stack>
-          </s-box>
-          <s-box padding="base" borderWidth="base" borderRadius="base">
-            <s-stack direction="block" gap="small">
-              <s-text color="subdued">Total Tracked</s-text>
-              <s-heading>{totalTracked}</s-heading>
-            </s-stack>
-          </s-box>
-          <s-box padding="base" borderWidth="base" borderRadius="base">
-            <s-stack direction="block" gap="small">
-              <s-text color="subdued">Errors</s-text>
-              <s-heading>
-                <s-text tone={errorCount > 0 ? "critical" : "auto"}>
-                  {errorCount}
+      {!data.onboardingCompleted && (
+        <s-section heading="Set up Inventex">
+          <s-paragraph>
+            Choose the first automation you want to configure. Sorting and
+            hiding remain independent, so you can enable both later.
+          </s-paragraph>
+          <s-stack direction="inline" gap="base">
+            <s-box padding="base" borderWidth="base" borderRadius="base">
+              <s-stack direction="block" gap="base">
+                <s-heading>Sort sold-out products last</s-heading>
+                <s-text color="subdued">
+                  Choose collections and preserve their in-stock order.
                 </s-text>
-              </s-heading>
-              {errorCount > 0 && <s-link href="/app/logs">View in Logs</s-link>}
-            </s-stack>
-          </s-box>
+                <Form method="post">
+                  <input
+                    type="hidden"
+                    name="_action"
+                    value="chooseOnboarding"
+                  />
+                  <input type="hidden" name="choice" value="SORT" />
+                  <s-button type="submit" variant="primary">
+                    Set up sorting
+                  </s-button>
+                </Form>
+              </s-stack>
+            </s-box>
+            <s-box padding="base" borderWidth="base" borderRadius="base">
+              <s-stack direction="block" gap="base">
+                <s-heading>Hide sold-out products</s-heading>
+                <s-text color="subdued">
+                  Unpublish sold-out products from Online Store only.
+                </s-text>
+                <Form method="post">
+                  <input
+                    type="hidden"
+                    name="_action"
+                    value="chooseOnboarding"
+                  />
+                  <input type="hidden" name="choice" value="HIDE" />
+                  <s-button type="submit" variant="primary">
+                    Set up hiding
+                  </s-button>
+                </Form>
+              </s-stack>
+            </s-box>
+          </s-stack>
+        </s-section>
+      )}
+
+      <s-section heading="Automation">
+        <s-stack direction="inline" gap="base">
+          <FeatureCard
+            title="Sorting"
+            status={
+              paused && data.sorting.activeCount > 0
+                ? "Paused"
+                : data.sorting.runningJobs > 0
+                  ? "Working"
+                  : data.sorting.activeCount > 0
+                    ? "On"
+                    : "Off"
+            }
+            detail={`${data.sorting.activeCount} collection${data.sorting.activeCount === 1 ? "" : "s"} active`}
+            href="/app/sort-collection"
+          />
+          <FeatureCard
+            title="Hiding"
+            status={
+              paused && data.hiding.enabled
+                ? "Paused"
+                : data.hiding.runningJobs > 0
+                  ? "Working"
+                  : data.hiding.enabled
+                    ? "On"
+                    : "Off"
+            }
+            detail={`${data.hiding.hiddenCount} products and ${data.hiding.hiddenVariantCount} variants hidden`}
+            href="/app/hide"
+          />
+          <FeatureCard
+            title="Alerts"
+            status={
+              paused && data.alerts.enabled
+                ? "Paused"
+                : data.alerts.enabled
+                  ? "On"
+                  : "Off"
+            }
+            detail={`${data.alerts.queuedCount} digest alert${data.alerts.queuedCount === 1 ? "" : "s"} queued`}
+            href="/app/alerts"
+          />
         </s-stack>
       </s-section>
 
-      {/* ── Sidebar ──────────────────────────────── */}
-      <s-section slot="aside" heading="Quick Links">
-        <s-unordered-list>
-          <s-list-item>
-            <s-link href="/app/hide">Hide Products</s-link>
-          </s-list-item>
-          <s-list-item>
-            <s-link href="/app/settings">Settings</s-link>
-          </s-list-item>
-          <s-list-item>
-            <s-link href="/app/logs">Activity Logs</s-link>
-          </s-list-item>
-        </s-unordered-list>
+      <s-section slot="aside" heading="Plan">
+        <s-stack direction="block" gap="small">
+          <s-text type="strong">
+            {data.billing.developmentStore
+              ? "Free development access"
+              : data.billing.subscribedPlan ?? "No active plan"}
+          </s-text>
+          <s-text color="subdued">
+            {data.billing.productCount.toLocaleString()} active and draft
+            products
+          </s-text>
+          <s-link href="/app/billing">View plans</s-link>
+        </s-stack>
       </s-section>
 
-      <s-section slot="aside" heading="How It Works">
-        <s-paragraph>
-          Sold-out products are removed only from Online Store after your
-          configured delay. Restocked products are published back automatically.
-        </s-paragraph>
-      </s-section>
+      {data.errorCount > 0 && (
+        <s-section slot="aside" heading="Needs attention">
+          <s-text tone="critical">
+            {data.errorCount} automation error
+            {data.errorCount === 1 ? "" : "s"}
+          </s-text>
+          <s-link href="/app/logs">View activity logs</s-link>
+        </s-section>
+      )}
     </s-page>
   );
 }
 
-export const headers: HeadersFunction = (headersArgs) => {
-  return boundary.headers(headersArgs);
-};
+function FeatureCard(props: {
+  title: string;
+  status: string;
+  detail: string;
+  href: string;
+}) {
+  return (
+    <s-box padding="base" borderWidth="base" borderRadius="base">
+      <s-stack direction="block" gap="small">
+        <s-heading>{props.title}</s-heading>
+        <s-text type="strong">{props.status}</s-text>
+        <s-text color="subdued">{props.detail}</s-text>
+        <s-link href={props.href}>Manage</s-link>
+      </s-stack>
+    </s-box>
+  );
+}
+
+export const headers: HeadersFunction = (headersArgs) =>
+  boundary.headers(headersArgs);

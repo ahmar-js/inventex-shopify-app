@@ -2,6 +2,8 @@ import db from "../db.server";
 import { authenticate } from "../shopify.server";
 import { fetchAllCollectionIds } from "./collection-sort.server";
 import { enqueueCollectionSortCommand } from "./webhooks.server";
+import { getBillingAccess } from "./billing.server";
+import { billingAccessMessage } from "./billing";
 
 export async function handleCollectionSortAction(request: Request) {
   const { admin, session } = await authenticate.admin(request);
@@ -17,6 +19,16 @@ export async function handleCollectionSortAction(request: Request) {
     );
     if (!collectionId)
       return failure("setAutoSorting", "Missing collection ID.");
+    if (enabled) {
+      const access = await getBillingAccess({ admin, session, force: true });
+      if (!access.accessAllowed) {
+        return failure(
+          "setAutoSorting",
+          billingAccessMessage(access) ?? "Automation requires a plan.",
+          collectionId,
+        );
+      }
+    }
 
     try {
       await db.collectionAutoSorting.upsert({
@@ -62,6 +74,13 @@ export async function handleCollectionSortAction(request: Request) {
   }
 
   if (action === "enableAllAutoSorting") {
+    const access = await getBillingAccess({ admin, session, force: true });
+    if (!access.accessAllowed) {
+      return failure(
+        "enableAllAutoSorting",
+        billingAccessMessage(access) ?? "Automation requires a plan.",
+      );
+    }
     try {
       const collections = await fetchAllCollectionIds(admin);
       for (let offset = 0; offset < collections.length; offset += 100) {
@@ -104,6 +123,15 @@ export async function handleCollectionSortAction(request: Request) {
     return failure(
       "changeSortOrder",
       "Missing or invalid sorting type.",
+      collectionId,
+    );
+  }
+
+  const access = await getBillingAccess({ admin, session, force: true });
+  if (!access.accessAllowed) {
+    return failure(
+      "changeSortOrder",
+      billingAccessMessage(access) ?? "Automation requires a plan.",
       collectionId,
     );
   }

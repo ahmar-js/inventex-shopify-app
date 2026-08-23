@@ -10,10 +10,21 @@ import type { ActionFunctionArgs } from "react-router";
 import { authenticate } from "../shopify.server";
 import db from "../db.server";
 import { sendAlertEmail } from "../services/email.server";
+import { getBillingAccess } from "../services/billing.server";
+import { billingAccessMessage } from "../services/billing";
 
 export const action = async ({ request }: ActionFunctionArgs) => {
-  const { session } = await authenticate.admin(request);
+  const { admin, session } = await authenticate.admin(request);
   const shop = session.shop;
+
+  const billing = await getBillingAccess({ admin, session, force: true });
+  if (!billing.accessAllowed) {
+    return Response.json({
+      previewSent: false,
+      previewError:
+        billingAccessMessage(billing) ?? "Automation requires a plan.",
+    });
+  }
 
   const settings = await db.alertSettings.findUnique({ where: { shop } });
   if (!settings || !settings.lowStockEnabled) {

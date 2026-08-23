@@ -93,6 +93,16 @@ production baseline in `prisma/migrations`. The ignored `prisma/dev.sqlite`
 file is not deleted, but its data is not automatically imported into
 PostgreSQL.
 
+### Billing
+
+Inventex uses Shopify's manual Billing API. In the Shopify Partner or Dev
+Dashboard, select **Manual pricing with the API** rather than Shopify App
+Pricing before releasing the app. The app creates one of four recurring plans
+based on the store's Active + Draft product count, with a seven-day trial.
+Partner development, Development, Trial, and Plus Trial stores receive free
+automation access. Deploy `shopify.app.toml` so Shopify registers the
+`app_subscriptions/update` and `products/create` subscriptions.
+
 Common PostgreSQL hosting options include:
 
 | Database   | Type             | Hosters                                                                                                                                                                                                                                    |

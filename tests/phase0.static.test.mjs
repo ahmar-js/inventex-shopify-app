@@ -85,6 +85,7 @@ test("shop redaction covers every shop-owned model", async () => {
     "alertQueue",
     "alertSent",
     "alertSettings",
+    "billingState",
     "collectionAutoSorting",
     "collectionRule",
     "excludedProduct",

@@ -25,6 +25,10 @@ api_version = "2026-07"
   uri = "/webhooks/inventory-update"
 
   [[webhooks.subscriptions]]
+  topics = [ "products/create" ]
+  uri = "/webhooks/products/create"
+
+  [[webhooks.subscriptions]]
   topics = [ "products/update" ]
   uri = "/webhooks/products/update"
 
@@ -43,6 +47,10 @@ api_version = "2026-07"
   [[webhooks.subscriptions]]
   topics = [ "collections/delete" ]
   uri = "/webhooks/collections/delete"
+
+  [[webhooks.subscriptions]]
+  topics = [ "app_subscriptions/update" ]
+  uri = "/webhooks/app-subscriptions/update"
 
   [[webhooks.subscriptions]]
   compliance_topics = [ "customers/data_request", "customers/redact", "shop/redact" ]

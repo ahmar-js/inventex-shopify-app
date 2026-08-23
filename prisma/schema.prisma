@@ -48,12 +48,10 @@ model Session {
 model ShopSettings {
   id                       Int      @id @default(autoincrement())
   shop                     String   @unique
-  /// HIDE = unpublish product, PUSH_DOWN = move to bottom of collections
-  strategy                 String   @default("HIDE")
-  /// ALWAYS = always restore, CONDITIONAL = only if app modified, NONE = never
-  restoreBehavior          String   @default("ALWAYS")
-  /// Master switch for the automation
-  enabled                  Boolean  @default(false)
+  /// Whether the merchant completed the sort-or-hide setup guide.
+  onboardingCompleted      Boolean  @default(false)
+  /// SORT or HIDE, used only to resume the merchant's chosen setup path.
+  onboardingChoice         String?
   /// Classify continue-selling variants separately for collection sorting.
   sortContinueSellingAsOos Boolean  @default(false)
   /// Automatically enable sorting when Shopify creates a collection.
@@ -80,6 +78,28 @@ model ShopSettings {
   variantHideJobId         String?
   createdAt                DateTime @default(now())
   updatedAt                DateTime @updatedAt
+}
+
+/// Cached canonical billing entitlement for a shop.
+model BillingState {
+  id                 Int       @id @default(autoincrement())
+  shop               String    @unique
+  productCount       Int       @default(0)
+  requiredPlan       String
+  subscribedPlan     String?
+  subscriptionId     String?
+  subscriptionStatus String    @default("NONE")
+  subscriptionTest   Boolean   @default(false)
+  trialEndsAt        DateTime?
+  developmentStore   Boolean   @default(false)
+  shopPlan           String?
+  accessAllowed      Boolean   @default(false)
+  accessReason       String    @default("PAYMENT_REQUIRED")
+  checkedAt          DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@index([accessAllowed, checkedAt])
 }
 
 /// Tracks products that the app has modified (hidden or repositioned)
@@ -142,34 +162,34 @@ model ExcludedProduct {
 
 /// Per-shop alert preferences set by the merchant.
 model AlertSettings {
-  id                 Int      @id @default(autoincrement())
-  shop               String   @unique
+  id                 Int       @id @default(autoincrement())
+  shop               String    @unique
   /// Master switch — whether any stock alert emails are sent
-  lowStockEnabled    Boolean  @default(false)
+  lowStockEnabled    Boolean   @default(false)
   /// IMMEDIATE = notify instantly, DAILY = once per day at chosen time, WEEKLY = weekly digest
-  alertFrequency     String   @default("IMMEDIATE")
+  alertFrequency     String    @default("IMMEDIATE")
   /// Comma-separated list of up to 5 recipient email addresses.
-  alertEmails        String   @default("")
+  alertEmails        String    @default("")
   /// Hour (1–12) for the daily alert — only used when alertFrequency = DAILY
-  dailyAlertHour     Int      @default(9)
+  dailyAlertHour     Int       @default(9)
   /// AM or PM for the daily alert time
-  dailyAlertAmPm     String   @default("AM")
+  dailyAlertAmPm     String    @default("AM")
   /// IANA timezone name for the daily alert, e.g. "America/New_York"
-  dailyAlertTimezone String   @default("America/New_York")
+  dailyAlertTimezone String    @default("America/New_York")
   /// Local weekday for weekly digests (0 = Sunday, 1 = Monday).
-  weeklyDigestDay    Int      @default(1)
+  weeklyDigestDay    Int       @default(1)
   /// Last successfully delivered daily or weekly digest.
   lastDigestSentAt   DateTime?
   /// Whether to send an alert when a product falls below lowStockThreshold
-  alertOnLowStock    Boolean  @default(true)
+  alertOnLowStock    Boolean   @default(true)
   /// Quantity at or below which a "low stock" alert fires (1–5000)
-  lowStockThreshold  Int      @default(5)
+  lowStockThreshold  Int       @default(5)
   /// Whether to send an alert when a product reaches exactly 0 inventory
-  alertOnOutOfStock  Boolean  @default(true)
+  alertOnOutOfStock  Boolean   @default(true)
   /// PRODUCT = check total product inventory, VARIANT = check each variant individually
-  stockCheckLevel    String   @default("PRODUCT")
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  stockCheckLevel    String    @default("PRODUCT")
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 }
 
 /// Deduplication log — one row per alert actually sent.
@@ -212,17 +232,17 @@ model AlertQueue {
 
 /// Variants unpublished by Inventex, used to restore only app-owned changes.
 model VariantInventoryState {
-  id            Int       @id @default(autoincrement())
-  shop          String
-  productId     String
-  variantId     String
-  productTitle  String    @default("")
-  variantTitle  String    @default("")
-  hiddenAt      DateTime  @default(now())
-  restored      Boolean   @default(false)
-  restoredAt    DateTime?
-  error         Boolean   @default(false)
-  errorMessage  String?
+  id           Int       @id @default(autoincrement())
+  shop         String
+  productId    String
+  variantId    String
+  productTitle String    @default("")
+  variantTitle String    @default("")
+  hiddenAt     DateTime  @default(now())
+  restored     Boolean   @default(false)
+  restoredAt   DateTime?
+  error        Boolean   @default(false)
+  errorMessage String?
 
   @@unique([shop, variantId])
   @@index([shop, productId])

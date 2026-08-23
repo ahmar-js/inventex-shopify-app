@@ -17,6 +17,7 @@ import type { AlertEmailPayload } from "./email.server";
 import type { ProductAvailabilityResult } from "./availability.server";
 import type { AvailabilityStatus } from "./availability";
 import { isDigestDue } from "./alerts-schedule";
+import { isAutomationAllowed } from "./billing.server";
 
 // ─── Constants ───────────────────────────────────────────────
 
@@ -49,6 +50,12 @@ export async function maybeFireAlertsForAvailability(
   data: ProductAvailabilityResult,
 ): Promise<void> {
   if (data.ignored) return;
+
+  const billingState = await db.billingState.findUnique({
+    where: { shop },
+    select: { accessAllowed: true },
+  });
+  if (!billingState?.accessAllowed) return;
 
   // ── 1. Load settings ─────────────────────────────────────
   const settings = await db.alertSettings.findUnique({ where: { shop } });
@@ -278,6 +285,7 @@ export async function flushAlertQueue(
   let totalProcessed = 0;
 
   for (const [shop, items] of byShop) {
+    if (!(await isAutomationAllowed(shop))) continue;
     const settings = await db.alertSettings.findUnique({ where: { shop } });
     if (!settings || !settings.lowStockEnabled) continue;
 

@@ -4,16 +4,23 @@ import { boundary } from "@shopify/shopify-app-react-router/server";
 import { AppProvider } from "@shopify/shopify-app-react-router/react";
 
 import { authenticate } from "../shopify.server";
+import { getBillingAccess } from "../services/billing.server";
+import { billingAccessMessage } from "../services/billing";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  await authenticate.admin(request);
+  const { admin, session } = await authenticate.admin(request);
+  const billing = await getBillingAccess({ admin, session });
 
   // eslint-disable-next-line no-undef
-  return { apiKey: process.env.SHOPIFY_API_KEY || "" };
+  return {
+    apiKey: process.env.SHOPIFY_API_KEY || "",
+    billing,
+    billingMessage: billingAccessMessage(billing),
+  };
 };
 
 export default function App() {
-  const { apiKey } = useLoaderData<typeof loader>();
+  const { apiKey, billing, billingMessage } = useLoaderData<typeof loader>();
 
   return (
     <AppProvider apiKey={apiKey}>
@@ -23,8 +30,16 @@ export default function App() {
         <s-link href="/app/hide">Hide Products</s-link>
         <s-link href="/app/sort-collection">Sort Collections</s-link>
         <s-link href="/app/alerts">Alerts</s-link>
+        <s-link href="/app/billing">Plans</s-link>
         <s-link href="/app/logs">Activity Logs</s-link>
       </s-app-nav>
+      {!billing.accessAllowed && (
+        <div style={{ margin: "16px" }}>
+          <s-banner tone="warning">
+            {billingMessage} <s-link href="/app/billing">View plans</s-link>
+          </s-banner>
+        </div>
+      )}
       <Outlet />
     </AppProvider>
   );

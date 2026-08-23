@@ -8,6 +8,11 @@ import {
 } from "./availability.server";
 import { maybeFireAlertsForAvailability } from "./alerts.server";
 import {
+  getBillingAccessForShop,
+  invalidateBillingState,
+  isAutomationAllowed,
+} from "./billing.server";
+import {
   collectionGid,
   CollectionSortDeferredError,
   disableCollectionAutoSortingNow,
@@ -40,6 +45,18 @@ const MAX_BATCH_SIZE = 25;
 const STALE_LOCK_MINUTES = 15;
 const MAX_THROTTLE_ATTEMPTS = 8;
 const MAX_GENERAL_ATTEMPTS = 3;
+const BILLING_GATED_JOB_TYPES = new Set<string>([
+  JOB_TYPES.INVENTORY_UPDATE,
+  JOB_TYPES.EVALUATE_PRODUCT,
+  JOB_TYPES.HIDE_PRODUCT,
+  JOB_TYPES.HIDE_VARIANT,
+  JOB_TYPES.CATALOG_HIDE_SCAN,
+  JOB_TYPES.VARIANT_HIDE_SCAN,
+  JOB_TYPES.COLLECTION_CREATE,
+  JOB_TYPES.ENABLE_COLLECTION_SORT,
+  JOB_TYPES.UPDATE_COLLECTION_BASE_ORDER,
+  JOB_TYPES.SORT_COLLECTION,
+]);
 
 const JobStatus = {
   PENDING: "PENDING",
@@ -135,6 +152,32 @@ async function processJob(job: Job) {
     ...resourceContext(job.type, data),
   });
 
+  if (job.type === JOB_TYPES.APP_SUBSCRIPTIONS_UPDATE) {
+    await invalidateBillingState(job.shop);
+    const access = await getBillingAccessForShop(job.shop, true);
+    logger.info("Subscription update reconciled", {
+      ...jobContext(job),
+      productCount: access.productCount,
+      billingPlan: access.subscribedPlan ?? access.requiredPlan,
+      accessAllowed: access.accessAllowed,
+      reason: access.accessReason,
+    });
+    return;
+  }
+
+  if (jobRequiresBilling(job.type)) {
+    const accessAllowed = await isAutomationAllowed(job.shop);
+    if (!accessAllowed) {
+      logger.warn("Automation job skipped by billing gate", {
+        ...jobContext(job),
+        ...resourceContext(job.type, data),
+        accessAllowed: false,
+        reason: "billingGate",
+      });
+      return;
+    }
+  }
+
   if (job.type === JOB_TYPES.INVENTORY_UPDATE) {
     const { admin } = await unauthenticated.admin(job.shop);
     const inventoryItemId = data.inventory_item_id;
@@ -170,9 +213,13 @@ async function processJob(job: Job) {
     return;
   }
 
-  if (job.type === JOB_TYPES.PRODUCT_UPDATE) {
+  if (
+    job.type === JOB_TYPES.PRODUCT_CREATE ||
+    job.type === JOB_TYPES.PRODUCT_UPDATE
+  ) {
     const productId = productGidFromPayload(data);
     if (!productId) throw new Error("Product webhook payload is missing id");
+    await invalidateBillingState(job.shop);
     await enqueueProductEvaluation({
       shop: job.shop,
       productId,
@@ -194,6 +241,7 @@ async function processJob(job: Job) {
         }),
       ]);
     }
+    await invalidateBillingState(job.shop);
     return;
   }
 
@@ -500,6 +548,10 @@ async function processJob(job: Job) {
     topic: payload.topic,
     ...resourceContext(job.type, data),
   });
+}
+
+function jobRequiresBilling(jobType: string) {
+  return BILLING_GATED_JOB_TYPES.has(jobType);
 }
 
 async function deferJob(job: Job, error: CollectionSortDeferredError) {

@@ -5,6 +5,8 @@ import { authenticate } from "../shopify.server";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { useAppBridge } from "@shopify/app-bridge-react";
 import db from "../db.server";
+import { getBillingAccess } from "../services/billing.server";
+import { billingAccessMessage } from "../services/billing";
 
 // ─── Loader ──────────────────────────────────────────────────
 
@@ -46,7 +48,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 // ─── Action ──────────────────────────────────────────────────
 
 export const action = async ({ request }: ActionFunctionArgs) => {
-  const { session } = await authenticate.admin(request);
+  const { admin, session } = await authenticate.admin(request);
   const shop     = session.shop;
   const formData = await request.formData();
 
@@ -66,6 +68,16 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const alertOnOutOfStock  = formData.get("alertOnOutOfStock") === "true";
   const rawLevel           = (formData.get("stockCheckLevel") as string) ?? "PRODUCT";
   const stockCheckLevel    = rawLevel === "VARIANT" ? "VARIANT" : "PRODUCT";
+
+  if (lowStockEnabled) {
+    const billing = await getBillingAccess({ admin, session, force: true });
+    if (!billing.accessAllowed) {
+      return {
+        success: false,
+        error: billingAccessMessage(billing) ?? "Automation requires a plan.",
+      };
+    }
+  }
 
   // Must have at least one alert type when alerts are enabled
   if (lowStockEnabled && !alertOnLowStock && !alertOnOutOfStock) {
