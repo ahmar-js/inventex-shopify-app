@@ -1,0 +1,185 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Note that some adapters may set a maximum length for the String type by default, please ensure your strings are long
+// enough when changing adapters.
+// See https://www.prisma.io/docs/orm/reference/prisma-schema-reference#string for more information
+datasource db {
+  provider = "sqlite"
+  url      = "file:dev.sqlite"
+}
+
+model Session {
+  id            String    @id
+  shop          String
+  state         String
+  isOnline      Boolean   @default(false)
+  scope         String?
+  expires       DateTime?
+  accessToken   String
+  userId        BigInt?
+  firstName     String?
+  lastName      String?
+  email         String?
+  accountOwner  Boolean   @default(false)
+  locale        String?
+  collaborator  Boolean?  @default(false)
+  emailVerified Boolean?  @default(false)
+  refreshToken        String?
+  refreshTokenExpires DateTime?
+}
+
+// ─── App Models ─────────────────────────────────────────────
+
+/// Per-shop automation settings chosen by the merchant
+model ShopSettings {
+  id              Int      @id @default(autoincrement())
+  shop            String   @unique
+  /// HIDE = unpublish product, PUSH_DOWN = move to bottom of collections
+  strategy        String   @default("HIDE")
+  /// ALWAYS = always restore, CONDITIONAL = only if app modified, NONE = never
+  restoreBehavior String   @default("ALWAYS")
+  /// Master switch for the automation
+  enabled         Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+/// Tracks products that the app has modified (hidden or repositioned)
+/// so we can restore them correctly later
+model InventoryState {
+  id                Int      @id @default(autoincrement())
+  shop              String
+  productId         String
+  /// HIDDEN or PUSHED_DOWN — what the app did to this product
+  action            String
+  /// Original publication IDs / collection positions, serialized JSON
+  previousState     String?
+  /// Timestamp of when the app modified this product
+  modifiedAt        DateTime @default(now())
+  /// Whether this product has been restored already
+  restored          Boolean  @default(false)
+  restoredAt        DateTime?
+  /// Whether the automation action resulted in an error
+  error             Boolean  @default(false)
+  /// Human-readable error message if action failed
+  errorMessage      String?
+
+  @@unique([shop, productId])
+  @@index([shop, restored])
+}
+
+/// Collections that the automation should apply to.
+/// If no rules exist for a shop, automation applies to ALL products.
+model CollectionRule {
+  id              Int      @id @default(autoincrement())
+  shop            String
+  /// Full Shopify GID, e.g. gid://shopify/Collection/123456
+  collectionId    String
+  /// Display title for the UI
+  collectionTitle String
+  createdAt       DateTime @default(now())
+
+  @@unique([shop, collectionId])
+  @@index([shop])
+}
+
+/// Products excluded from automation.
+/// These products are never hidden or pushed down, even if out of stock.
+model ExcludedProduct {
+  id            Int      @id @default(autoincrement())
+  shop          String
+  /// Full Shopify GID, e.g. gid://shopify/Product/123456
+  productId     String
+  /// Display title for the UI
+  productTitle  String
+  createdAt     DateTime @default(now())
+
+  @@unique([shop, productId])
+  @@index([shop])
+}
+
+/// Per-shop alert preferences set by the merchant.
+model AlertSettings {
+  id              Int      @id @default(autoincrement())
+  shop            String   @unique
+  /// Master switch — whether any stock alert emails are sent
+  lowStockEnabled Boolean  @default(false)
+  /// IMMEDIATE = notify instantly, DAILY = once per day at chosen time, WEEKLY = weekly digest
+  alertFrequency     String   @default("IMMEDIATE")
+  /// Comma-separated list of up to 5 recipient email addresses.
+  alertEmails        String   @default("")
+  /// Hour (1–12) for the daily alert — only used when alertFrequency = DAILY
+  dailyAlertHour     Int      @default(9)
+  /// AM or PM for the daily alert time
+  dailyAlertAmPm     String   @default("AM")
+  /// IANA timezone name for the daily alert, e.g. "America/New_York"
+  dailyAlertTimezone String   @default("America/New_York")
+  /// Whether to send an alert when a product falls below lowStockThreshold
+  alertOnLowStock    Boolean  @default(true)
+  /// Quantity at or below which a "low stock" alert fires (1–5000)
+  lowStockThreshold  Int      @default(5)
+  /// Whether to send an alert when a product reaches exactly 0 inventory
+  alertOnOutOfStock  Boolean  @default(true)
+  /// PRODUCT = check total product inventory, VARIANT = check each variant individually
+  stockCheckLevel    String   @default("PRODUCT")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+/// Deduplication log — one row per alert actually sent.
+/// Used to prevent the same alert firing multiple times within a cooldown window.
+model AlertSent {
+  id        Int      @id @default(autoincrement())
+  shop      String
+  /// Full Shopify GID, e.g. gid://shopify/Product/123456
+  productId String
+  /// Full Shopify GID of the variant, or empty string when stockCheckLevel=PRODUCT
+  variantId String   @default("")
+  /// LOW_STOCK or OUT_OF_STOCK
+  alertType String
+  /// IMMEDIATE | DAILY | WEEKLY — which frequency window this covers
+  frequency String
+  sentAt    DateTime @default(now())
+
+  @@index([shop, productId, alertType, sentAt])
+}
+
+/// Queue for DAILY and WEEKLY digest alerts.
+/// Records are written when an alert is triggered but not sent immediately.
+/// The cron endpoint reads and flushes this table.
+model AlertQueue {
+  id          Int      @id @default(autoincrement())
+  shop        String
+  productId   String
+  productTitle String  @default("")
+  variantId   String   @default("")
+  variantTitle String  @default("")
+  alertType   String
+  /// Inventory quantity at the time the alert was queued
+  quantity    Int
+  queuedAt    DateTime @default(now())
+  /// Whether this row has already been included in a digest
+  processed   Boolean  @default(false)
+
+  @@index([shop, processed, queuedAt])
+}
+
+/// Stores per-collection Auto Sorting toggle state chosen by the merchant.
+/// Absence of a row means Auto Sorting is disabled for that collection.
+model CollectionAutoSorting {
+  id           Int      @id @default(autoincrement())
+  shop         String
+  /// Full Shopify GID, e.g. gid://shopify/Collection/123456
+  collectionId String
+  /// true = automation manages this collection's sort order
+  enabled      Boolean  @default(true)
+  updatedAt    DateTime @updatedAt
+
+  @@unique([shop, collectionId])
+  @@index([shop])
+}
