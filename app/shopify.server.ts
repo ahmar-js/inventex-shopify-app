@@ -9,6 +9,21 @@ import { PrismaSessionStorage } from "@shopify/shopify-app-session-storage-prism
 import prisma from "./db.server";
 import { BILLING_PLAN_NAMES, BILLING_TRIAL_DAYS } from "./services/billing";
 
+if (process.env.NODE_ENV === "production") {
+  for (const name of [
+    "SHOPIFY_API_KEY",
+    "SHOPIFY_API_SECRET",
+    "SHOPIFY_APP_URL",
+    "DATABASE_URL",
+    "CRON_SECRET",
+    "SUPPORT_EMAIL",
+  ]) {
+    if (!process.env[name]?.trim()) {
+      throw new Error(`${name} is required in production`);
+    }
+  }
+}
+
 const shopify = shopifyApp({
   apiKey: process.env.SHOPIFY_API_KEY,
   apiSecretKey: process.env.SHOPIFY_API_SECRET || "",

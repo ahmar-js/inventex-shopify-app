@@ -18,12 +18,15 @@
     "graphql-codegen": "graphql-codegen",
     "vite": "vite",
     "typecheck": "react-router typegen && tsc --noEmit",
-    "test:phase0": "node --test tests/phase0.static.test.mjs",
-    "test:phase1": "node --test tests/availability.test.mjs tests/phase1.static.test.mjs",
-    "test:phase2": "node --test tests/collection-sort.test.mjs tests/phase2.static.test.mjs",
-    "test:phase3": "node --test tests/hide.test.mjs tests/phase3.static.test.mjs",
-    "test:phase4": "node --test tests/alerts-schedule.test.mjs tests/variant-hide.test.mjs tests/phase4.static.test.mjs",
-    "test:phase5": "node --test tests/billing.test.mjs tests/phase5.static.test.mjs"
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:phase0": "vitest run tests/phase0.static.test.mjs",
+    "test:phase1": "vitest run tests/availability.test.mjs tests/phase1.static.test.mjs",
+    "test:phase2": "vitest run tests/collection-sort.test.mjs tests/phase2.static.test.mjs",
+    "test:phase3": "vitest run tests/hide.test.mjs tests/phase3.static.test.mjs",
+    "test:phase4": "vitest run tests/alerts-schedule.test.mjs tests/variant-hide.test.mjs tests/phase4.static.test.mjs",
+    "test:phase5": "vitest run tests/billing.test.mjs tests/phase5.static.test.mjs",
+    "test:phase6": "vitest run tests/hide-lifecycle.test.ts tests/jobs-idempotency.test.ts tests/gdpr-redact.test.ts tests/phase6.static.test.mjs"
   },
   "type": "module",
   "engines": {
@@ -64,7 +67,8 @@
     "graphql-config": "^5.1.1",
     "prettier": "^3.6.2",
     "typescript": "^5.9.3",
-    "vite": "^6.3.6"
+    "vite": "^6.3.6",
+    "vitest": "^3.2.4"
   },
   "workspaces": [
     "extensions/*"

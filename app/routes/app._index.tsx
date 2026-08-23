@@ -9,10 +9,7 @@ import { authenticate } from "../shopify.server";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { useAppBridge } from "@shopify/app-bridge-react";
 import db from "../db.server";
-import {
-  enqueueHideCatalogScan,
-  JOB_TYPES,
-} from "../services/webhooks.server";
+import { enqueueHideCatalogScan, JOB_TYPES } from "../services/webhooks.server";
 import { getBillingAccess } from "../services/billing.server";
 import { billingAccessMessage } from "../services/billing";
 
@@ -35,6 +32,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     queuedAlertCount,
     sortingJobCount,
     hidingJobCount,
+    deadLetterCount,
   ] = await Promise.all([
     db.collectionAutoSorting.count({ where: { shop, enabled: true } }),
     db.inventoryState.count({
@@ -75,6 +73,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
         },
       },
     }),
+    db.deadLetterJob.count({ where: { shop } }),
   ]);
 
   return {
@@ -93,6 +92,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       queuedCount: queuedAlertCount,
     },
     errorCount,
+    deadLetterCount,
   };
 };
 
@@ -271,7 +271,7 @@ export default function Dashboard() {
           <s-text type="strong">
             {data.billing.developmentStore
               ? "Free development access"
-              : data.billing.subscribedPlan ?? "No active plan"}
+              : (data.billing.subscribedPlan ?? "No active plan")}
           </s-text>
           <s-text color="subdued">
             {data.billing.productCount.toLocaleString()} active and draft
@@ -281,12 +281,18 @@ export default function Dashboard() {
         </s-stack>
       </s-section>
 
-      {data.errorCount > 0 && (
+      {(data.errorCount > 0 || data.deadLetterCount > 0) && (
         <s-section slot="aside" heading="Needs attention">
-          <s-text tone="critical">
-            {data.errorCount} automation error
-            {data.errorCount === 1 ? "" : "s"}
-          </s-text>
+          <s-stack direction="block" gap="small">
+            <s-text tone="critical">
+              {data.errorCount} automation error
+              {data.errorCount === 1 ? "" : "s"}
+            </s-text>
+            <s-text tone="critical">
+              {data.deadLetterCount} dead-letter job
+              {data.deadLetterCount === 1 ? "" : "s"}
+            </s-text>
+          </s-stack>
           <s-link href="/app/logs">View activity logs</s-link>
         </s-section>
       )}

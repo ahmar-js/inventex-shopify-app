@@ -2,14 +2,10 @@ import type { ActionFunctionArgs } from "react-router";
 import { authenticate } from "../shopify.server";
 import { logger } from "../services/logger.server";
 import { deleteAllShopData } from "../services/shop-data.server";
-import {
-  enqueueWebhook,
-  JOB_TYPES,
-} from "../services/webhooks.server";
+import { enqueueWebhook, JOB_TYPES } from "../services/webhooks.server";
 
 export const action = async ({ request }: ActionFunctionArgs) => {
-  const { shop, topic, webhookId, payload } =
-    await authenticate.webhook(request);
+  const { shop, topic, webhookId } = await authenticate.webhook(request);
 
   if (String(topic) === "SHOP_REDACT") {
     await deleteAllShopData(shop);
@@ -30,7 +26,9 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     topic: String(topic),
     webhookId,
     jobType,
-    payload,
+    // Inventex stores no customer-domain data. Persist only the delivery key
+    // and topic, not the compliance payload's customer identifiers.
+    payload: {},
   });
   logger.info(
     result.duplicate

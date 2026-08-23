@@ -7,12 +7,14 @@ import { useAppBridge } from "@shopify/app-bridge-react";
 import db from "../db.server";
 import { getBillingAccess } from "../services/billing.server";
 import { billingAccessMessage } from "../services/billing";
+import { instrumentAdminApi } from "../services/observability.server";
 
 // ─── Loader ──────────────────────────────────────────────────
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { session, admin } = await authenticate.admin(request);
+  const { session, admin: rawAdmin } = await authenticate.admin(request);
   const shop = session.shop;
+  const admin = instrumentAdminApi(rawAdmin, shop);
 
   // Fetch the store's primary email from Shopify
   let primaryEmail = "";

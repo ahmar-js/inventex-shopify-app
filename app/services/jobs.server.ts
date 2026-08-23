@@ -24,6 +24,10 @@ import {
 } from "./collection-sort.server";
 import { logger } from "./logger.server";
 import {
+  captureOperationalError,
+  instrumentAdminApi,
+} from "./observability.server";
+import {
   clearHideJobLock,
   enqueueCatalogProductEvaluations,
   hideProductFromOnlineStore,
@@ -179,7 +183,7 @@ async function processJob(job: Job) {
   }
 
   if (job.type === JOB_TYPES.INVENTORY_UPDATE) {
-    const { admin } = await unauthenticated.admin(job.shop);
+    const admin = await adminForShop(job.shop);
     const inventoryItemId = data.inventory_item_id;
     if (
       typeof inventoryItemId !== "number" &&
@@ -249,7 +253,7 @@ async function processJob(job: Job) {
     const productId =
       typeof data.productId === "string" ? data.productId : null;
     if (!productId) throw new Error("Evaluation job is missing productId");
-    const { admin } = await unauthenticated.admin(job.shop);
+    const admin = await adminForShop(job.shop);
 
     try {
       const availability = await evaluateProductAvailability(
@@ -294,7 +298,7 @@ async function processJob(job: Job) {
   if (job.type === JOB_TYPES.HIDE_PRODUCT) {
     const productId = productGidFromPayload(data);
     if (!productId) throw new Error("Hide job is missing productId");
-    const { admin } = await unauthenticated.admin(job.shop);
+    const admin = await adminForShop(job.shop);
     try {
       const availability = await evaluateProductAvailability(
         admin,
@@ -322,7 +326,7 @@ async function processJob(job: Job) {
   if (job.type === JOB_TYPES.UNHIDE_PRODUCT) {
     const productId = productGidFromPayload(data);
     if (!productId) throw new Error("Unhide job is missing productId");
-    const { admin } = await unauthenticated.admin(job.shop);
+    const admin = await adminForShop(job.shop);
     await unhideProductToOnlineStore(admin, job.shop, productId);
     return;
   }
@@ -333,7 +337,7 @@ async function processJob(job: Job) {
       select: { hideEnabled: true },
     });
     if (settings?.hideEnabled) {
-      const { admin } = await unauthenticated.admin(job.shop);
+      const admin = await adminForShop(job.shop);
       const productCount = await enqueueCatalogProductEvaluations(
         admin,
         job.shop,
@@ -354,7 +358,7 @@ async function processJob(job: Job) {
       select: { hideEnabled: true },
     });
     if (!settings?.hideEnabled) {
-      const { admin } = await unauthenticated.admin(job.shop);
+      const admin = await adminForShop(job.shop);
       const productCount = await republishAllInventexHidden(admin, job.shop);
       logger.info("Inventex-hidden catalog restored", {
         ...jobContext(job),
@@ -367,11 +371,12 @@ async function processJob(job: Job) {
 
   if (job.type === JOB_TYPES.HIDE_VARIANT) {
     const productId = productGidFromPayload(data);
-    const variantId = typeof data.variantId === "string" ? data.variantId : null;
+    const variantId =
+      typeof data.variantId === "string" ? data.variantId : null;
     if (!productId || !variantId) {
       throw new Error("Variant hide job is missing productId or variantId");
     }
-    const { admin } = await unauthenticated.admin(job.shop);
+    const admin = await adminForShop(job.shop);
     try {
       const availability = await evaluateProductAvailability(
         admin,
@@ -386,12 +391,7 @@ async function processJob(job: Job) {
         await syncVariantHideForAvailability(job.shop, availability, job.id);
         return;
       }
-      await hideVariantFromOnlineStore(
-        admin,
-        job.shop,
-        productId,
-        variantId,
-      );
+      await hideVariantFromOnlineStore(admin, job.shop, productId, variantId);
     } catch (error) {
       if (error instanceof ProductNotFoundError) {
         await db.$transaction([
@@ -410,9 +410,10 @@ async function processJob(job: Job) {
   }
 
   if (job.type === JOB_TYPES.UNHIDE_VARIANT) {
-    const variantId = typeof data.variantId === "string" ? data.variantId : null;
+    const variantId =
+      typeof data.variantId === "string" ? data.variantId : null;
     if (!variantId) throw new Error("Variant unhide job is missing variantId");
-    const { admin } = await unauthenticated.admin(job.shop);
+    const admin = await adminForShop(job.shop);
     await unhideVariantToOnlineStore(admin, job.shop, variantId);
     return;
   }
@@ -423,7 +424,7 @@ async function processJob(job: Job) {
       select: { variantHideEnabled: true },
     });
     if (settings?.variantHideEnabled) {
-      const { admin } = await unauthenticated.admin(job.shop);
+      const admin = await adminForShop(job.shop);
       const result = await dispatchVariantHideScan(admin, job.shop, job.id);
       logger.info("Variant hide catalog scan completed", {
         ...jobContext(job),
@@ -440,7 +441,7 @@ async function processJob(job: Job) {
       select: { variantHideEnabled: true },
     });
     if (!settings?.variantHideEnabled) {
-      const { admin } = await unauthenticated.admin(job.shop);
+      const admin = await adminForShop(job.shop);
       const restored = await republishAllHiddenVariants(admin, job.shop);
       logger.info("Inventex-hidden variants restored", {
         ...jobContext(job),
@@ -465,7 +466,7 @@ async function processJob(job: Job) {
         update: { enabled: true, disabledReason: null },
         create: { shop: job.shop, collectionId, enabled: true },
       });
-      const { admin } = await unauthenticated.admin(job.shop);
+      const admin = await adminForShop(job.shop);
       await enableCollectionAutoSortingNow(admin, job.shop, collectionId);
     }
     return;
@@ -475,7 +476,7 @@ async function processJob(job: Job) {
     const collectionId = collectionGidFromPayload(data);
     if (!collectionId)
       throw new Error("Collection webhook payload is missing id");
-    const { admin } = await unauthenticated.admin(job.shop);
+    const admin = await adminForShop(job.shop);
     await handleCollectionUpdateJob(admin, job.shop, collectionId);
     return;
   }
@@ -494,7 +495,7 @@ async function processJob(job: Job) {
     const collectionId = collectionGidFromPayload(data);
     if (!collectionId)
       throw new Error("Enable-sort job is missing collectionId");
-    const { admin } = await unauthenticated.admin(job.shop);
+    const admin = await adminForShop(job.shop);
     await enableCollectionAutoSortingNow(
       admin,
       job.shop,
@@ -508,7 +509,7 @@ async function processJob(job: Job) {
     const collectionId = collectionGidFromPayload(data);
     if (!collectionId)
       throw new Error("Disable-sort job is missing collectionId");
-    const { admin } = await unauthenticated.admin(job.shop);
+    const admin = await adminForShop(job.shop);
     await disableCollectionAutoSortingNow(admin, job.shop, collectionId);
     return;
   }
@@ -521,7 +522,7 @@ async function processJob(job: Job) {
         "Base-order job is missing collectionId or baseSortOrder",
       );
     }
-    const { admin } = await unauthenticated.admin(job.shop);
+    const admin = await adminForShop(job.shop);
     await updateCollectionBaseOrderNow(
       admin,
       job.shop,
@@ -534,7 +535,7 @@ async function processJob(job: Job) {
   if (job.type === JOB_TYPES.SORT_COLLECTION) {
     const collectionId = collectionGidFromPayload(data);
     if (!collectionId) throw new Error("Sort job is missing collectionId");
-    const { admin } = await unauthenticated.admin(job.shop);
+    const admin = await adminForShop(job.shop);
     await sortCollectionNow(admin, job.shop, collectionId, job.id);
     return;
   }
@@ -580,21 +581,57 @@ async function rescheduleOrFail(job: Job, error: unknown) {
   const delayMs = retryDelayMs(job.attempts, throttled);
   const lastError = errorMessage(error).slice(0, 4_000);
 
-  await db.job.updateMany({
-    where: { id: job.id, status: JobStatus.PROCESSING },
-    data: shouldRetry
-      ? {
-          status: JobStatus.PENDING,
-          runAfter: new Date(Date.now() + delayMs),
-          lockedAt: null,
-          lastError,
-        }
-      : {
+  if (shouldRetry) {
+    await db.job.updateMany({
+      where: { id: job.id, status: JobStatus.PROCESSING },
+      data: {
+        status: JobStatus.PENDING,
+        runAfter: new Date(Date.now() + delayMs),
+        lockedAt: null,
+        lastError,
+      },
+    });
+  } else {
+    await db.$transaction([
+      db.job.updateMany({
+        where: { id: job.id, status: JobStatus.PROCESSING },
+        data: {
           status: JobStatus.FAILED,
           lockedAt: null,
           lastError,
         },
-  });
+      }),
+      db.deadLetterJob.upsert({
+        where: { shop_jobId: { shop: job.shop, jobId: job.id } },
+        update: {
+          type: job.type,
+          payload: toJson(job.payload),
+          attempts: job.attempts,
+          lastError,
+          failedAt: new Date(),
+        },
+        create: {
+          shop: job.shop,
+          jobId: job.id,
+          type: job.type,
+          payload: toJson(job.payload),
+          attempts: job.attempts,
+          lastError,
+        },
+      }),
+    ]);
+    await captureOperationalError({
+      shop: job.shop,
+      source: "job-worker",
+      message: "Job moved to dead letter after retry exhaustion",
+      error,
+      context: {
+        jobId: job.id,
+        jobType: job.type,
+        attempts: job.attempts,
+      },
+    });
+  }
 
   if (
     !shouldRetry &&
@@ -625,6 +662,11 @@ function retryDelayMs(attempts: number, throttled: boolean) {
   const baseMs = throttled ? 30_000 : 10_000;
   const capped = Math.min(baseMs * 2 ** Math.max(0, attempts - 1), 15 * 60_000);
   return capped + Math.floor(Math.random() * 2_000);
+}
+
+async function adminForShop(shop: string) {
+  const { admin } = await unauthenticated.admin(shop);
+  return instrumentAdminApi(admin, shop);
 }
 
 export function isShopifyThrottleError(error: unknown): boolean {

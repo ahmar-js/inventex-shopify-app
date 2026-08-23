@@ -13,13 +13,28 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const url = new URL(request.url);
   const page = Math.max(1, parseInt(url.searchParams.get("page") ?? "1", 10));
 
-  const [total, logs] = await Promise.all([
+  const [total, logs, deadLetters, events, metrics] = await Promise.all([
     db.inventoryState.count({ where: { shop } }),
     db.inventoryState.findMany({
       where: { shop },
       orderBy: { modifiedAt: "desc" },
       skip: (page - 1) * PER_PAGE,
       take: PER_PAGE,
+    }),
+    db.deadLetterJob.findMany({
+      where: { shop },
+      orderBy: { failedAt: "desc" },
+      take: 10,
+    }),
+    db.operationalEvent.findMany({
+      where: { shop, level: "ERROR" },
+      orderBy: { createdAt: "desc" },
+      take: 10,
+    }),
+    db.shopifyApiMetric.findMany({
+      where: { shop },
+      orderBy: { bucketStart: "desc" },
+      take: 25,
     }),
   ]);
 
@@ -39,11 +54,38 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       modifiedAt: log.modifiedAt.toISOString(),
       restoredAt: log.restoredAt?.toISOString() ?? null,
     })),
+    deadLetters: deadLetters.map((job) => ({
+      id: job.id,
+      jobId: job.jobId,
+      type: job.type,
+      attempts: job.attempts,
+      lastError: job.lastError,
+      failedAt: job.failedAt.toISOString(),
+    })),
+    events: events.map((event) => ({
+      id: event.id,
+      source: event.source,
+      message: event.message,
+      createdAt: event.createdAt.toISOString(),
+    })),
+    metrics: metrics.map((metric) => ({
+      id: metric.id,
+      operation: metric.operation,
+      outcome: metric.outcome,
+      count: metric.count,
+      averageDurationMs:
+        metric.count > 0
+          ? Math.round(Number(metric.totalDurationMs) / metric.count)
+          : 0,
+      maxDurationMs: metric.maxDurationMs,
+      bucketStart: metric.bucketStart.toISOString(),
+    })),
   };
 };
 
 export default function Logs() {
-  const { logs, page, totalPages, total } = useLoaderData<typeof loader>();
+  const { logs, page, totalPages, total, deadLetters, events, metrics } =
+    useLoaderData<typeof loader>();
 
   const prevHref = page > 1 ? `/app/logs?page=${page - 1}` : null;
   const nextHref = page < totalPages ? `/app/logs?page=${page + 1}` : null;
@@ -102,10 +144,7 @@ export default function Logs() {
                     >
                       <td style={{ padding: "12px" }}>
                         <s-text>
-                          {log.productId.replace(
-                            "gid://shopify/Product/",
-                            "#",
-                          )}
+                          {log.productId.replace("gid://shopify/Product/", "#")}
                         </s-text>
                       </td>
                       <td style={{ padding: "12px" }}>
@@ -175,6 +214,54 @@ export default function Logs() {
             </s-stack>
           </s-stack>
         )}
+      </s-section>
+
+      <s-section heading="Production Operations">
+        <s-stack direction="block" gap="base">
+          <s-heading>Dead-letter jobs</s-heading>
+          {deadLetters.length === 0 ? (
+            <s-text color="subdued">No jobs exhausted their retries.</s-text>
+          ) : (
+            deadLetters.map((job) => (
+              <s-box key={job.id} padding="base" borderWidth="base">
+                <s-stack direction="block" gap="small">
+                  <s-text type="strong">
+                    {job.type} · {job.attempts} attempts
+                  </s-text>
+                  <s-text tone="critical">{job.lastError}</s-text>
+                  <s-text color="subdued">
+                    {new Date(job.failedAt).toLocaleString()} · {job.jobId}
+                  </s-text>
+                </s-stack>
+              </s-box>
+            ))
+          )}
+
+          <s-heading>Recent operational errors</s-heading>
+          {events.length === 0 ? (
+            <s-text color="subdued">No operational errors recorded.</s-text>
+          ) : (
+            events.map((event) => (
+              <s-text key={event.id} tone="critical">
+                {event.source}: {event.message} ·{" "}
+                {new Date(event.createdAt).toLocaleString()}
+              </s-text>
+            ))
+          )}
+
+          <s-heading>Recent Shopify API metrics</s-heading>
+          {metrics.length === 0 ? (
+            <s-text color="subdued">No measured API calls yet.</s-text>
+          ) : (
+            metrics.map((metric) => (
+              <s-text key={metric.id} color="subdued">
+                {metric.operation} · {metric.outcome} · {metric.count} call
+                {metric.count === 1 ? "" : "s"} · avg {metric.averageDurationMs}{" "}
+                ms · max {metric.maxDurationMs} ms
+              </s-text>
+            ))
+          )}
+        </s-stack>
       </s-section>
 
       <s-section slot="aside" heading="About Logs">

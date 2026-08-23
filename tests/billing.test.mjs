@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vitest";
 import {
   BILLING_PLAN_NAMES,
   billingPlanCoversProducts,
@@ -24,11 +24,23 @@ const subscription = (name, overrides = {}) => ({
 });
 
 test("Nada-equivalent tiers use active and draft product boundaries", () => {
-  assert.equal(requiredPlanForProductCount(100).name, BILLING_PLAN_NAMES.STARTER);
-  assert.equal(requiredPlanForProductCount(101).name, BILLING_PLAN_NAMES.GROWTH);
-  assert.equal(requiredPlanForProductCount(1_000).name, BILLING_PLAN_NAMES.GROWTH);
+  assert.equal(
+    requiredPlanForProductCount(100).name,
+    BILLING_PLAN_NAMES.STARTER,
+  );
+  assert.equal(
+    requiredPlanForProductCount(101).name,
+    BILLING_PLAN_NAMES.GROWTH,
+  );
+  assert.equal(
+    requiredPlanForProductCount(1_000).name,
+    BILLING_PLAN_NAMES.GROWTH,
+  );
   assert.equal(requiredPlanForProductCount(1_001).name, BILLING_PLAN_NAMES.PRO);
-  assert.equal(requiredPlanForProductCount(10_000).name, BILLING_PLAN_NAMES.PRO);
+  assert.equal(
+    requiredPlanForProductCount(10_000).name,
+    BILLING_PLAN_NAMES.PRO,
+  );
   assert.equal(
     requiredPlanForProductCount(10_001).name,
     BILLING_PLAN_NAMES.ENTERPRISE,
@@ -86,5 +98,8 @@ test("an active subscription must cover the current product count", () => {
   });
   assert.equal(covered.accessAllowed, true);
   assert.equal(covered.accessReason, "ACTIVE_SUBSCRIPTION");
-  assert.equal(billingPlanCoversProducts(BILLING_PLAN_NAMES.GROWTH, 1_000), true);
+  assert.equal(
+    billingPlanCoversProducts(BILLING_PLAN_NAMES.GROWTH, 1_000),
+    true,
+  );
 });

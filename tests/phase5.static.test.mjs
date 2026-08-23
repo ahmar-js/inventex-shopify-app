@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import test from "node:test";
+import { test } from "vitest";
 
 const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
 
@@ -22,7 +22,10 @@ test("billing uses Active plus Draft count and persists shop-scoped access", asy
     read("app/services/billing.server.ts"),
     read("prisma/schema.prisma"),
   ]);
-  assert.match(server, /productsCount\(query: "status:active,draft", limit: null\)/);
+  assert.match(
+    server,
+    /productsCount\(query: "status:active,draft", limit: null\)/,
+  );
   assert.match(server, /currentAppInstallation/);
   assert.match(server, /accessAllowed: false/);
   assert.match(schema, /model BillingState/);
@@ -81,7 +84,10 @@ test("dashboard and onboarding expose real independent feature state", async () 
   assert.match(dashboard, /choice" value="SORT"/);
   assert.match(dashboard, /choice" value="HIDE"/);
   assert.match(schema, /onboardingCompleted/);
-  assert.doesNotMatch(schema, /strategy\s+String|restoreBehavior|Master switch for the automation/);
+  assert.doesNotMatch(
+    schema,
+    /strategy\s+String|restoreBehavior|Master switch for the automation/,
+  );
 });
 
 test("Hide-page exclusions also own the inventex-ignore product tag", async () => {

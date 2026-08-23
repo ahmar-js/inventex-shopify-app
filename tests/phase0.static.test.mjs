@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import test from "node:test";
+import { test } from "vitest";
 
 const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
 
@@ -92,6 +92,9 @@ test("shop redaction covers every shop-owned model", async () => {
     "inventoryState",
     "productAvailabilityState",
     "variantInventoryState",
+    "shopifyApiMetric",
+    "operationalEvent",
+    "deadLetterJob",
     "shopSettings",
     "job",
     "session",

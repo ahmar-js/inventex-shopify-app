@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
 import { readFile } from "node:fs/promises";
-import test from "node:test";
+import { test } from "vitest";
 import ts from "typescript";
 
 const source = await readFile(

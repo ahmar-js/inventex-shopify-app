@@ -10,6 +10,10 @@ import {
   type SubscriptionDetails,
 } from "./billing";
 import { logger } from "./logger.server";
+import {
+  captureOperationalError,
+  instrumentAdminApi,
+} from "./observability.server";
 
 const BILLING_CACHE_MS = 5 * 60 * 1_000;
 
@@ -68,7 +72,8 @@ export async function refreshBillingAccess(
   session: Session,
 ): Promise<BillingAccess> {
   try {
-    const contextResponse = await admin.graphql(`#graphql
+    const measuredAdmin = instrumentAdminApi(admin, session.shop);
+    const contextResponse = await measuredAdmin.graphql(`#graphql
         query InventexBillingContext {
           productsCount(query: "status:active,draft", limit: null) {
             count
@@ -152,6 +157,12 @@ export async function refreshBillingAccess(
   } catch (error) {
     logger.error("Billing entitlement refresh failed closed", {
       shop: session.shop,
+      error,
+    });
+    await captureOperationalError({
+      shop: session.shop,
+      source: "billing",
+      message: "Billing entitlement refresh failed closed",
       error,
     });
     const existing = await db.billingState.findUnique({

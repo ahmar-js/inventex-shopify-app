@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import test from "node:test";
+import { test } from "vitest";
 
 const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
 
@@ -21,7 +21,10 @@ test("alerts consume canonical availability and preserve four-hour cooldown", as
   assert.match(alerts, /maybeFireAlertsForAvailability/);
   assert.doesNotMatch(alerts, /evaluateProductAvailability/);
   assert.match(alerts, /4 \* 60 \* 60 \* 1000/);
-  assert.match(jobs, /maybeFireAlertsForAvailability\(job\.shop, availability\)/);
+  assert.match(
+    jobs,
+    /maybeFireAlertsForAvailability\(job\.shop, availability\)/,
+  );
 });
 
 test("daily and weekly digests use IANA timezones and persisted delivery time", async () => {

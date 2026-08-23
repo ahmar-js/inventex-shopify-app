@@ -4,10 +4,12 @@ import { fetchAllCollectionIds } from "./collection-sort.server";
 import { enqueueCollectionSortCommand } from "./webhooks.server";
 import { getBillingAccess } from "./billing.server";
 import { billingAccessMessage } from "./billing";
+import { instrumentAdminApi } from "./observability.server";
 
 export async function handleCollectionSortAction(request: Request) {
-  const { admin, session } = await authenticate.admin(request);
+  const { admin: rawAdmin, session } = await authenticate.admin(request);
   const shop = session.shop;
+  const admin = instrumentAdminApi(rawAdmin, shop);
   const formData = await request.formData();
   const action = formData.get("_action");
 

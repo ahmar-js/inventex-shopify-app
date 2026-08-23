@@ -301,6 +301,51 @@ model Job {
   @@index([shop, status])
 }
 
+/// Terminal job failures retained for operator review after retry exhaustion.
+model DeadLetterJob {
+  id        String   @id @default(cuid())
+  shop      String
+  jobId     String
+  type      String
+  payload   Json
+  attempts  Int
+  lastError String
+  failedAt  DateTime @default(now())
+
+  @@unique([shop, jobId])
+  @@index([shop, failedAt])
+}
+
+/// Durable error events for production diagnostics without access tokens.
+model OperationalEvent {
+  id        String   @id @default(cuid())
+  shop      String
+  level     String
+  source    String
+  message   String
+  context   Json?
+  createdAt DateTime @default(now())
+
+  @@index([shop, createdAt])
+  @@index([level, createdAt])
+}
+
+/// Per-minute Shopify Admin API latency and outcome counters.
+model ShopifyApiMetric {
+  id              Int      @id @default(autoincrement())
+  shop            String
+  operation       String
+  outcome         String
+  bucketStart     DateTime
+  count           Int      @default(0)
+  totalDurationMs BigInt   @default(0)
+  maxDurationMs   Int      @default(0)
+  updatedAt       DateTime @updatedAt
+
+  @@unique([shop, operation, outcome, bucketStart])
+  @@index([shop, bucketStart])
+}
+
 /// Latest canonical product availability snapshot used by downstream features.
 model ProductAvailabilityState {
   id          Int       @id @default(autoincrement())

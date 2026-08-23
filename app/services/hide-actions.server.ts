@@ -7,6 +7,7 @@ import {
 } from "./hide";
 import { getBillingAccess } from "./billing.server";
 import { billingAccessMessage } from "./billing";
+import { instrumentAdminApi } from "./observability.server";
 import type { AdminApiContext } from "@shopify/shopify-app-react-router/server";
 import {
   cancelAllPendingProductHides,
@@ -17,8 +18,9 @@ import {
 } from "./webhooks.server";
 
 export async function handleHideAction(request: Request) {
-  const { admin, session } = await authenticate.admin(request);
+  const { admin: rawAdmin, session } = await authenticate.admin(request);
   const shop = session.shop;
+  const admin = instrumentAdminApi(rawAdmin, shop);
   const formData = await request.formData();
   const action = String(formData.get("_action") ?? "saveHideSettings");
 

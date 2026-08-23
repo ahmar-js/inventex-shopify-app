@@ -6,6 +6,7 @@ import { boundary } from "@shopify/shopify-app-react-router/server";
 import { useAppBridge } from "@shopify/app-bridge-react";
 import db from "../db.server";
 import { handleCollectionSortAction } from "../services/collection-sort-actions.server";
+import { instrumentAdminApi } from "../services/observability.server";
 
 interface CollectionsQueryResponse {
   data?: {
@@ -38,8 +39,9 @@ interface ShopifyModalElement extends HTMLElement {
 // ─── Loader ──────────────────────────────────────────────────
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { admin, session } = await authenticate.admin(request);
+  const { admin: rawAdmin, session } = await authenticate.admin(request);
   const shop = session.shop;
+  const admin = instrumentAdminApi(rawAdmin, shop);
 
   const url = new URL(request.url);
   const cursor = url.searchParams.get("cursor") ?? null;

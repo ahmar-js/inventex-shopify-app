@@ -2,6 +2,9 @@ import db from "../db.server";
 
 export async function deleteAllShopData(shop: string) {
   await db.$transaction([
+    db.shopifyApiMetric.deleteMany({ where: { shop } }),
+    db.operationalEvent.deleteMany({ where: { shop } }),
+    db.deadLetterJob.deleteMany({ where: { shop } }),
     db.billingState.deleteMany({ where: { shop } }),
     db.alertQueue.deleteMany({ where: { shop } }),
     db.alertSent.deleteMany({ where: { shop } }),

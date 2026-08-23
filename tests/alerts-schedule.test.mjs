@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vitest";
 import { isDigestDue } from "../app/services/alerts-schedule.ts";
 
 const schedule = (overrides = {}) => ({
@@ -89,5 +89,8 @@ test("invalid timezones and immediate frequency fail closed", () => {
     isDigestDue(schedule({ dailyAlertTimezone: "Not/A_Timezone" }), now),
     false,
   );
-  assert.equal(isDigestDue(schedule({ alertFrequency: "IMMEDIATE" }), now), false);
+  assert.equal(
+    isDigestDue(schedule({ alertFrequency: "IMMEDIATE" }), now),
+    false,
+  );
 });

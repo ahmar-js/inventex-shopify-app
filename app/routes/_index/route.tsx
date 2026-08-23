@@ -1,9 +1,16 @@
-import type { LoaderFunctionArgs } from "react-router";
-import { redirect, Form, useLoaderData } from "react-router";
+import type { LoaderFunctionArgs, MetaFunction } from "react-router";
+import { redirect } from "react-router";
 
-import { login } from "../../shopify.server";
+import styles from "../../public-page.module.css";
 
-import styles from "./styles.module.css";
+export const meta: MetaFunction = () => [
+  { title: "Inventex — Inventory automation for Shopify" },
+  {
+    name: "description",
+    content:
+      "Sort and hide sold-out Shopify products and receive inventory alerts.",
+  },
+];
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const url = new URL(request.url);
@@ -12,46 +19,45 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     throw redirect(`/app?${url.searchParams.toString()}`);
   }
 
-  return { showForm: Boolean(login) };
+  return null;
 };
 
 export default function App() {
-  const { showForm } = useLoaderData<typeof loader>();
-
   return (
-    <div className={styles.index}>
+    <main className={styles.page}>
       <div className={styles.content}>
-        <h1 className={styles.heading}>A short heading about [your app]</h1>
-        <p className={styles.text}>
-          A tagline about [your app] that describes your value proposition.
+        <h1>Keep sold-out products under control</h1>
+        <p>
+          Inventex automatically sorts unavailable products last, hides them
+          from the Online Store when you choose, and sends inventory alerts.
         </p>
-        {showForm && (
-          <Form className={styles.form} method="post" action="/auth/login">
-            <label className={styles.label}>
-              <span>Shop domain</span>
-              <input className={styles.input} type="text" name="shop" />
-              <span>e.g: my-shop-domain.myshopify.com</span>
-            </label>
-            <button className={styles.button} type="submit">
-              Log in
-            </button>
-          </Form>
-        )}
-        <ul className={styles.list}>
+        <ul className={styles.features}>
           <li>
-            <strong>Product feature</strong>. Some detail about your feature and
-            its benefit to your customer.
+            <strong>Collection sorting</strong>
+            <br />
+            Keep available products first while preserving your chosen order.
           </li>
           <li>
-            <strong>Product feature</strong>. Some detail about your feature and
-            its benefit to your customer.
+            <strong>Safe product hiding</strong>
+            <br />
+            Unpublish from Online Store only, with optional redirects and
+            automatic restoration.
           </li>
           <li>
-            <strong>Product feature</strong>. Some detail about your feature and
-            its benefit to your customer.
+            <strong>Stock alerts</strong>
+            <br />
+            Receive immediate, daily, or weekly low-stock notifications.
           </li>
         </ul>
+        <p>
+          Install and open Inventex from its Shopify App Store listing or from
+          the Apps section of your Shopify admin.
+        </p>
+        <footer className={styles.footer}>
+          <a href="/privacy">Privacy policy</a>
+          <a href="/support">Support</a>
+        </footer>
       </div>
-    </div>
+    </main>
   );
 }
