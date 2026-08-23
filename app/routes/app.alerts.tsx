@@ -35,6 +35,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     dailyAlertHour:     settings?.dailyAlertHour     ?? 9,
     dailyAlertAmPm:     settings?.dailyAlertAmPm     ?? "AM",
     dailyAlertTimezone: settings?.dailyAlertTimezone ?? "America/New_York",
+    weeklyDigestDay:    settings?.weeklyDigestDay    ?? 1,
     alertOnLowStock:    settings?.alertOnLowStock    ?? true,
     lowStockThreshold:  settings?.lowStockThreshold  ?? 5,
     alertOnOutOfStock:  settings?.alertOnOutOfStock  ?? true,
@@ -50,11 +51,15 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const formData = await request.formData();
 
   const lowStockEnabled    = formData.get("lowStockEnabled") === "true";
-  const alertFrequency     = formData.get("alertFrequency") as string;
+  const rawFrequency       = formData.get("alertFrequency");
+  const alertFrequency     = rawFrequency === "DAILY" || rawFrequency === "WEEKLY"
+    ? rawFrequency
+    : "IMMEDIATE";
   const alertEmails        = ((formData.get("alertEmails") as string) ?? "").trim();
   const dailyAlertHour     = Math.max(1, Math.min(12, parseInt((formData.get("dailyAlertHour") as string) ?? "9", 10) || 9));
   const dailyAlertAmPm     = formData.get("dailyAlertAmPm") === "PM" ? "PM" : "AM";
   const dailyAlertTimezone = (formData.get("dailyAlertTimezone") as string) || "America/New_York";
+  const weeklyDigestDay    = Math.max(0, Math.min(6, parseInt((formData.get("weeklyDigestDay") as string) ?? "1", 10) || 0));
   const alertOnLowStock    = formData.get("alertOnLowStock") === "true";
   const rawThreshold       = parseInt((formData.get("lowStockThreshold") as string) ?? "5", 10);
   const lowStockThreshold  = isNaN(rawThreshold) ? 5 : Math.max(1, Math.min(5000, rawThreshold));
@@ -91,8 +96,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   try {
     await db.alertSettings.upsert({
       where:  { shop },
-      update: { lowStockEnabled, alertFrequency, alertEmails: normalised, dailyAlertHour, dailyAlertAmPm, dailyAlertTimezone, alertOnLowStock, lowStockThreshold, alertOnOutOfStock, stockCheckLevel },
-      create: { shop, lowStockEnabled, alertFrequency, alertEmails: normalised, dailyAlertHour, dailyAlertAmPm, dailyAlertTimezone, alertOnLowStock, lowStockThreshold, alertOnOutOfStock, stockCheckLevel },
+      update: { lowStockEnabled, alertFrequency, alertEmails: normalised, dailyAlertHour, dailyAlertAmPm, dailyAlertTimezone, weeklyDigestDay, alertOnLowStock, lowStockThreshold, alertOnOutOfStock, stockCheckLevel },
+      create: { shop, lowStockEnabled, alertFrequency, alertEmails: normalised, dailyAlertHour, dailyAlertAmPm, dailyAlertTimezone, weeklyDigestDay, alertOnLowStock, lowStockThreshold, alertOnOutOfStock, stockCheckLevel },
     });
     return { success: true };
   } catch {
@@ -123,9 +128,19 @@ const FREQUENCY_OPTIONS = [
     value: "WEEKLY",
     label: "Weekly digest",
     description:
-      "Get a weekly roundup every Monday morning with all low stock and out-of-stock products from the past 7 days.",
+      "Get a weekly roundup on your chosen weekday and time with all low stock and out-of-stock products from the past 7 days.",
   },
 ] as const;
+
+const WEEKDAYS = [
+  "Sunday",
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+];
 
 // ─── Timezones ───────────────────────────────────────────────
 
@@ -283,6 +298,7 @@ export default function Alerts() {
     dailyAlertHour: initialHour,
     dailyAlertAmPm: initialAmPm,
     dailyAlertTimezone: initialTz,
+    weeklyDigestDay: initialWeeklyDigestDay,
     alertOnLowStock: initialAlertOnLowStock,
     lowStockThreshold: initialThreshold,
     alertOnOutOfStock: initialAlertOnOutOfStock,
@@ -299,6 +315,7 @@ export default function Alerts() {
   const [dailyAlertHour,     setDailyAlertHour]     = useState(initialHour);
   const [dailyAlertAmPm,     setDailyAlertAmPm]     = useState(initialAmPm);
   const [dailyAlertTimezone, setDailyAlertTimezone] = useState(initialTz);
+  const [weeklyDigestDay,    setWeeklyDigestDay]    = useState(initialWeeklyDigestDay);
   const [alertOnLowStock,    setAlertOnLowStock]    = useState(initialAlertOnLowStock);
   const [lowStockThreshold,  setLowStockThreshold]  = useState(String(initialThreshold));
   const [thresholdError,     setThresholdError]     = useState<string | null>(null);
@@ -312,9 +329,9 @@ export default function Alerts() {
   // ── Toast on save ────────────────────────────────────────
   useEffect(() => {
     if (lastNavState.current === "submitting" && navigation.state === "idle") {
-      if ((actionData as any)?.success === false) {
+      if (actionData?.success === false) {
         shopify.toast.show(
-          (actionData as any).error ?? "Failed to save. Please try again.",
+          actionData.error ?? "Failed to save. Please try again.",
           { isError: true },
         );
       } else {
@@ -348,15 +365,20 @@ export default function Alerts() {
         return;
       }
 
-      const data = await res.json();
+      const data = (await res.json()) as {
+        previewSent?: boolean;
+        previewEmails?: string;
+        previewError?: string;
+      };
       if (data.previewSent) {
         shopify.toast.show(`Preview sent to ${data.previewEmails}`);
       } else {
         shopify.toast.show(data.previewError ?? "Failed to send preview", { isError: true });
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("[preview] fetch error:", err);
-      shopify.toast.show(`Preview failed: ${err?.message ?? String(err)}`, { isError: true });
+      const message = err instanceof Error ? err.message : String(err);
+      shopify.toast.show(`Preview failed: ${message}`, { isError: true });
     } finally {
       setIsSendingPreview(false);
     }
@@ -399,6 +421,7 @@ export default function Alerts() {
         <input type="hidden" name="dailyAlertHour"     value={String(dailyAlertHour)} />
         <input type="hidden" name="dailyAlertAmPm"     value={dailyAlertAmPm} />
         <input type="hidden" name="dailyAlertTimezone" value={dailyAlertTimezone} />
+        <input type="hidden" name="weeklyDigestDay"    value={String(weeklyDigestDay)} />
         <input type="hidden" name="alertOnLowStock"    value={String(alertOnLowStock)} />
         <input type="hidden" name="lowStockThreshold"  value={lowStockThreshold} />
         <input type="hidden" name="alertOnOutOfStock"  value={String(alertOnOutOfStock)} />
@@ -426,6 +449,7 @@ export default function Alerts() {
 
             <s-box>
               <label
+                aria-label="Enable low stock alerts"
                 className={[
                   "al-toggle-card",
                   lowStockEnabled ? "active" : "",
@@ -470,6 +494,7 @@ export default function Alerts() {
                     return (
                       <div key={opt.value}>
                         <label
+                          aria-label={opt.label}
                           className={[
                             "al-freq-card",
                             isSelected ? "selected" : "",
@@ -488,13 +513,25 @@ export default function Alerts() {
                           </s-stack>
                         </label>
 
-                        {/* Time + timezone picker — only for Once per day */}
-                        {opt.value === "DAILY" && isSelected && (
+                        {(opt.value === "DAILY" || opt.value === "WEEKLY") && isSelected && (
                           <div className="al-time-panel">
                             <div style={{ marginBottom: "10px" }}>
-                              <s-text type="strong">Send email at</s-text>
+                              <s-text type="strong">Digest schedule</s-text>
                             </div>
                             <div className="al-time-row">
+                              {opt.value === "WEEKLY" && (
+                                <select
+                                  className="al-time-select"
+                                  value={weeklyDigestDay}
+                                  onChange={(e) => setWeeklyDigestDay(Number(e.target.value))}
+                                  aria-label="Weekday"
+                                >
+                                  {WEEKDAYS.map((day, index) => (
+                                    <option key={day} value={index}>{day}</option>
+                                  ))}
+                                </select>
+                              )}
+
                               {/* Hour */}
                               <select
                                 className="al-time-select"
@@ -564,7 +601,7 @@ export default function Alerts() {
               <s-box>
                 <s-stack direction="block" gap="small">
 
-                  <label className={["al-radio-card", stockCheckLevel === "PRODUCT" ? "selected" : ""].join(" ")}>
+                  <label aria-label="Check product stock" className={["al-radio-card", stockCheckLevel === "PRODUCT" ? "selected" : ""].join(" ")}>
                     <input
                       type="radio"
                       name="_stockCheckLevel"
@@ -581,7 +618,7 @@ export default function Alerts() {
                     </s-stack>
                   </label>
 
-                  <label className={["al-radio-card", stockCheckLevel === "VARIANT" ? "selected" : ""].join(" ")}>
+                  <label aria-label="Check each product variant" className={["al-radio-card", stockCheckLevel === "VARIANT" ? "selected" : ""].join(" ")}>
                     <input
                       type="radio"
                       name="_stockCheckLevel"
@@ -615,7 +652,7 @@ export default function Alerts() {
                 <s-stack direction="block" gap="small">
 
                   {/* Low stock option */}
-                  <label className={["al-check-card", alertOnLowStock ? "selected" : ""].join(" ")}>
+                  <label aria-label="Low stock alert" className={["al-check-card", alertOnLowStock ? "selected" : ""].join(" ")}>
                     <input
                       type="checkbox"
                       checked={alertOnLowStock}
@@ -629,10 +666,7 @@ export default function Alerts() {
                       </s-text>
 
                       {alertOnLowStock && (
-                        <div
-                          className="al-threshold-row"
-                          onClick={(e) => e.preventDefault()}
-                        >
+                        <div className="al-threshold-row">
                           <span className="al-threshold-hint">Alert when stock is at or below</span>
                           <input
                             type="number"
@@ -641,6 +675,7 @@ export default function Alerts() {
                             max={5000}
                             placeholder="5"
                             value={lowStockThreshold}
+                            onClick={(e) => e.stopPropagation()}
                             onChange={(e) => {
                               setLowStockThreshold(e.target.value);
                               if (thresholdError) setThresholdError(null);
@@ -653,7 +688,7 @@ export default function Alerts() {
                             }}
                             aria-label="Low stock threshold"
                           />
-                          <span className="al-threshold-hint">units &nbsp;(max 5,000)</span>
+                          <span className="al-threshold-hint">units (max 5,000)</span>
                         </div>
                       )}
                       {thresholdError && (
@@ -663,7 +698,7 @@ export default function Alerts() {
                   </label>
 
                   {/* Out of stock option */}
-                  <label className={["al-check-card", alertOnOutOfStock ? "selected" : ""].join(" ")}>
+                  <label aria-label="Out of stock alert" className={["al-check-card", alertOnOutOfStock ? "selected" : ""].join(" ")}>
                     <input
                       type="checkbox"
                       checked={alertOnOutOfStock}

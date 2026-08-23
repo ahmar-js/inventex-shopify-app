@@ -53,10 +53,11 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       productAdminUrl,
     });
     return Response.json({ previewSent: true, previewEmails: emails.join(", ") });
-  } catch (err: any) {
+  } catch (err: unknown) {
     return Response.json({
       previewSent: false,
-      previewError: err?.message ?? "Failed to send preview email.",
+      previewError:
+        err instanceof Error ? err.message : "Failed to send preview email.",
     });
   }
 };

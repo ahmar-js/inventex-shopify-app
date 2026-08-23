@@ -9,6 +9,7 @@ export async function deleteAllShopData(shop: string) {
     db.collectionRule.deleteMany({ where: { shop } }),
     db.excludedProduct.deleteMany({ where: { shop } }),
     db.productAvailabilityState.deleteMany({ where: { shop } }),
+    db.variantInventoryState.deleteMany({ where: { shop } }),
     db.inventoryState.deleteMany({ where: { shop } }),
     db.shopSettings.deleteMany({ where: { shop } }),
     db.job.deleteMany({ where: { shop } }),

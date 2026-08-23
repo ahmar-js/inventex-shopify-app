@@ -21,7 +21,8 @@
     "test:phase0": "node --test tests/phase0.static.test.mjs",
     "test:phase1": "node --test tests/availability.test.mjs tests/phase1.static.test.mjs",
     "test:phase2": "node --test tests/collection-sort.test.mjs tests/phase2.static.test.mjs",
-    "test:phase3": "node --test tests/hide.test.mjs tests/phase3.static.test.mjs"
+    "test:phase3": "node --test tests/hide.test.mjs tests/phase3.static.test.mjs",
+    "test:phase4": "node --test tests/alerts-schedule.test.mjs tests/variant-hide.test.mjs tests/phase4.static.test.mjs"
   },
   "type": "module",
   "engines": {
@@ -34,8 +35,8 @@
     "@react-router/node": "^7.12.0",
     "@react-router/serve": "^7.12.0",
     "@shopify/app-bridge-react": "^4.2.4",
-    "@shopify/shopify-app-react-router": "^1.1.0",
-    "@shopify/shopify-app-session-storage-prisma": "^8.0.0",
+    "@shopify/shopify-app-react-router": "^2.0.0",
+    "@shopify/shopify-app-session-storage-prisma": "^10.0.0",
     "isbot": "^5.1.31",
     "prisma": "^6.16.3",
     "react": "^18.3.1",
@@ -45,7 +46,7 @@
     "vite-tsconfig-paths": "^5.1.4"
   },
   "devDependencies": {
-    "@shopify/api-codegen-preset": "^1.2.0",
+    "@shopify/api-codegen-preset": "^3.0.0",
     "@shopify/polaris-types": "^1.0.1",
     "@types/eslint": "^9.6.1",
     "@types/node": "^22.18.8",

@@ -70,6 +70,14 @@ model ShopSettings {
   onlineStorePublicationId String?
   /// Catalog scan or republish-all job currently locking hide settings.
   hideJobId                String?
+  /// Hide sold-out variants from the Online Store publication.
+  variantHideEnabled       Boolean  @default(false)
+  /// False while the catalog exceeds the 500 published-product beta limit.
+  variantHideEligible      Boolean  @default(false)
+  /// Published Online Store product count measured by the latest variant scan.
+  variantHideCatalogCount  Int?
+  /// Catalog scan or variant republish job currently locking this setting.
+  variantHideJobId         String?
   createdAt                DateTime @default(now())
   updatedAt                DateTime @updatedAt
 }
@@ -148,6 +156,10 @@ model AlertSettings {
   dailyAlertAmPm     String   @default("AM")
   /// IANA timezone name for the daily alert, e.g. "America/New_York"
   dailyAlertTimezone String   @default("America/New_York")
+  /// Local weekday for weekly digests (0 = Sunday, 1 = Monday).
+  weeklyDigestDay    Int      @default(1)
+  /// Last successfully delivered daily or weekly digest.
+  lastDigestSentAt   DateTime?
   /// Whether to send an alert when a product falls below lowStockThreshold
   alertOnLowStock    Boolean  @default(true)
   /// Quantity at or below which a "low stock" alert fires (1–5000)
@@ -196,6 +208,25 @@ model AlertQueue {
   processed    Boolean  @default(false)
 
   @@index([shop, processed, queuedAt])
+}
+
+/// Variants unpublished by Inventex, used to restore only app-owned changes.
+model VariantInventoryState {
+  id            Int       @id @default(autoincrement())
+  shop          String
+  productId     String
+  variantId     String
+  productTitle  String    @default("")
+  variantTitle  String    @default("")
+  hiddenAt      DateTime  @default(now())
+  restored      Boolean   @default(false)
+  restoredAt    DateTime?
+  error         Boolean   @default(false)
+  errorMessage  String?
+
+  @@unique([shop, variantId])
+  @@index([shop, productId])
+  @@index([shop, restored])
 }
 
 /// Stores per-collection Auto Sorting toggle state chosen by the merchant.

@@ -9,7 +9,7 @@ import { loginErrorMessage } from "./error.server";
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const errors = loginErrorMessage(await login(request));
 
-  return { errors };
+  return { errors, apiKey: process.env.SHOPIFY_API_KEY || "" };
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
@@ -27,7 +27,7 @@ export default function Auth() {
   const { errors } = actionData || loaderData;
 
   return (
-    <AppProvider embedded={false}>
+    <AppProvider apiKey={loaderData.apiKey}>
       <s-page>
         <Form method="post">
         <s-section heading="Log in">

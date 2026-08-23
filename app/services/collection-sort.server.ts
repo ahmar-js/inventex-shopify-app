@@ -554,8 +554,8 @@ async function updateShopifyCollectionSortOrder(
 ) {
   const response = await admin.graphql(
     `#graphql
-      mutation updateInventexCollectionSort($input: CollectionInput!) {
-        collectionUpdate(input: $input) {
+      mutation updateInventexCollectionSort($collection: CollectionUpdateInput!) {
+        collectionUpdate(collection: $collection) {
           collection { id sortOrder }
           userErrors { field message }
         }
@@ -563,7 +563,7 @@ async function updateShopifyCollectionSortOrder(
     `,
     {
       variables: {
-        input: { id: collectionId, sortOrder: sortOrder as never },
+        collection: { id: collectionId, sortOrder: sortOrder as never },
       },
     },
   );

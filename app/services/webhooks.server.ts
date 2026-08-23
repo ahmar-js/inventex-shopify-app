@@ -21,6 +21,10 @@ export const JOB_TYPES = {
   UNHIDE_PRODUCT: "UNHIDE_PRODUCT",
   CATALOG_HIDE_SCAN: "CATALOG_HIDE_SCAN",
   REPUBLISH_HIDDEN_PRODUCTS: "REPUBLISH_HIDDEN_PRODUCTS",
+  HIDE_VARIANT: "HIDE_VARIANT",
+  UNHIDE_VARIANT: "UNHIDE_VARIANT",
+  VARIANT_HIDE_SCAN: "VARIANT_HIDE_SCAN",
+  REPUBLISH_HIDDEN_VARIANTS: "REPUBLISH_HIDDEN_VARIANTS",
   APP_UNINSTALLED: "APP_UNINSTALLED",
   CUSTOMERS_DATA_REQUEST: "CUSTOMERS_DATA_REQUEST",
   CUSTOMERS_REDACT: "CUSTOMERS_REDACT",
@@ -68,6 +72,7 @@ export async function enqueueProductEvaluation(input: {
     | "productUpdate"
     | "collectionBootstrap"
     | "hideScan"
+    | "variantHideScan"
     | "ignoreChanged";
 }) {
   return enqueueJob({
@@ -164,6 +169,85 @@ export async function cancelAllPendingProductHides(shop: string) {
   return db.job.updateMany({
     where: { shop, type: JOB_TYPES.HIDE_PRODUCT, status: "PENDING" },
     data: { status: "COMPLETED", lockedAt: null, lastError: null },
+  });
+}
+
+export async function enqueueHideVariant(input: {
+  shop: string;
+  productId: string;
+  variantId: string;
+  sourceJobId: string;
+}) {
+  return enqueueReplaceableJob({
+    shop: input.shop,
+    type: JOB_TYPES.HIDE_VARIANT,
+    uniqueKey: `hide-variant:${input.shop}:${input.variantId}`,
+    payload: {
+      data: {
+        productId: input.productId,
+        variantId: input.variantId,
+        sourceJobId: input.sourceJobId,
+      },
+    },
+  });
+}
+
+export async function enqueueUnhideVariant(input: {
+  shop: string;
+  productId: string;
+  variantId: string;
+  sourceJobId: string;
+  reason: "available" | "ignored" | "disabled" | "ineligible" | "deleted";
+}) {
+  return enqueueReplaceableJob({
+    shop: input.shop,
+    type: JOB_TYPES.UNHIDE_VARIANT,
+    uniqueKey: `unhide-variant:${input.shop}:${input.variantId}`,
+    payload: {
+      data: {
+        productId: input.productId,
+        variantId: input.variantId,
+        sourceJobId: input.sourceJobId,
+        reason: input.reason,
+      },
+    },
+  });
+}
+
+export async function cancelPendingVariantHide(shop: string, variantId: string) {
+  return db.job.updateMany({
+    where: {
+      shop,
+      type: JOB_TYPES.HIDE_VARIANT,
+      uniqueKey: `hide-variant:${shop}:${variantId}`,
+      status: "PENDING",
+    },
+    data: { status: "COMPLETED", lockedAt: null, lastError: null },
+  });
+}
+
+export async function cancelAllPendingVariantHides(shop: string) {
+  return db.job.updateMany({
+    where: { shop, type: JOB_TYPES.HIDE_VARIANT, status: "PENDING" },
+    data: { status: "COMPLETED", lockedAt: null, lastError: null },
+  });
+}
+
+export async function enqueueVariantHideScan(shop: string) {
+  return enqueueReplaceableJob({
+    shop,
+    type: JOB_TYPES.VARIANT_HIDE_SCAN,
+    uniqueKey: `variant-hide-scan:${shop}`,
+    payload: { data: { reason: "variantHideEnabled" } },
+  });
+}
+
+export async function enqueueRepublishHiddenVariants(shop: string) {
+  return enqueueReplaceableJob({
+    shop,
+    type: JOB_TYPES.REPUBLISH_HIDDEN_VARIANTS,
+    uniqueKey: `republish-hidden-variants:${shop}`,
+    payload: { data: { reason: "variantHideDisabled" } },
   });
 }
 

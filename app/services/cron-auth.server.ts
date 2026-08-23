@@ -4,13 +4,8 @@ export function authorizeCronRequest(request: Request): Response | null {
   const secret = process.env.CRON_SECRET;
 
   if (!secret) {
-    if (process.env.NODE_ENV === "production") {
-      logger.error("Cron request rejected because CRON_SECRET is not configured");
-      return jsonResponse({ error: "Cron is not configured" }, 503);
-    }
-
-    logger.warn("CRON_SECRET is not set; allowing cron request outside production");
-    return null;
+    logger.error("Cron request rejected because CRON_SECRET is not configured");
+    return jsonResponse({ error: "Cron is not configured" }, 503);
   }
 
   const authorization = request.headers.get("Authorization") ?? "";

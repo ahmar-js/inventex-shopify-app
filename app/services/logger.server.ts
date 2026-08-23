@@ -7,9 +7,14 @@ export interface LogContext {
   topic?: string;
   jobType?: string;
   productId?: string;
+  variantId?: string;
   inventoryItemId?: string;
   collectionId?: string;
   productCount?: number;
+  publishedProductCount?: number;
+  variantCount?: number;
+  dispatched?: number;
+  eligible?: boolean;
   sortOrder?: string;
   attempts?: number;
   delayMs?: number;

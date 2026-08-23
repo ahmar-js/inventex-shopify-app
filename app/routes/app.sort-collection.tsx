@@ -7,6 +7,34 @@ import { useAppBridge } from "@shopify/app-bridge-react";
 import db from "../db.server";
 import { handleCollectionSortAction } from "../services/collection-sort-actions.server";
 
+interface CollectionsQueryResponse {
+  data?: {
+    collections?: {
+      edges: Array<{
+        cursor: string;
+        node: {
+          id: string;
+          title: string;
+          sortOrder: string;
+          productsCount?: { count: number } | null;
+          ruleSet?: unknown;
+        };
+      }>;
+      pageInfo: {
+        hasNextPage: boolean;
+        hasPreviousPage: boolean;
+        startCursor: string | null;
+        endCursor: string | null;
+      };
+    };
+  };
+}
+
+interface ShopifyModalElement extends HTMLElement {
+  show(): void;
+  hide(): void;
+}
+
 // ─── Loader ──────────────────────────────────────────────────
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
@@ -47,11 +75,11 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     { variables: { cursor } },
   );
 
-  const json = await response.json();
-  const edges: any[] = json.data?.collections?.edges ?? [];
+  const json = (await response.json()) as CollectionsQueryResponse;
+  const edges = json.data?.collections?.edges ?? [];
   const pageInfo = json.data?.collections?.pageInfo;
 
-  const collections = edges.map((edge: any) => ({
+  const collections = edges.map((edge) => ({
     id: edge.node.id as string,
     cursor: edge.cursor as string,
     title: edge.node.title as string,
@@ -105,10 +133,6 @@ const SORT_ORDER_LABELS: Record<string, string> = {
   PRICE_DESC: "Price: high to low",
 };
 
-function sortOrderLabel(order: string) {
-  return SORT_ORDER_LABELS[order] ?? order;
-}
-
 // ─── Component ───────────────────────────────────────────────
 
 type SortField = "title" | "sortOrder" | "productsCount";
@@ -150,7 +174,7 @@ export default function SortCollection() {
   const fetcher      = useFetcher<ActionData>();   // sort order changes
   const autoFetcher  = useFetcher<ActionData>();   // auto sorting toggle changes
   const shopify      = useAppBridge();
-  const modalRef     = useRef<HTMLElement>(null);
+  const modalRef     = useRef<ShopifyModalElement>(null);
 
   // ── State ─────────────────────────────────────────────────
   const [searchQuery, setSearchQuery]     = useState("");
@@ -263,19 +287,19 @@ export default function SortCollection() {
       newOrder,
       autoSortingEnabled: (autoSorting[col.id] ?? "enabled") === "enabled",
     });
-    (modalRef.current as any)?.show();
+    modalRef.current?.show();
   };
 
   // ── Confirmed — submit to Shopify ─────────────────────────
   const handleCancel = () => {
-    (modalRef.current as any)?.hide();
+    modalRef.current?.hide();
     setPendingChange(null);
   };
 
   const handleConfirm = () => {
     if (!pendingChange) return;
     const { collectionId, collectionTitle, newOrder, autoSortingEnabled } = pendingChange;
-    (modalRef.current as any)?.hide();
+    modalRef.current?.hide();
     setPendingChange(null);
     // Optimistically reflect auto-enable in local state (server also enables it in the action)
     if (!autoSortingEnabled) {
@@ -382,7 +406,12 @@ export default function SortCollection() {
       ────────────────────────────────────────────────────── */}
       <ui-modal id="sc-sort-modal" ref={modalRef}>
         <ui-title-bar title="Change Sorting Order?">
-          <button {...({ variant: "primary" } as any)} onClick={handleConfirm}>Update Sorting</button>
+          <button
+            {...({ variant: "primary" } as unknown as React.ButtonHTMLAttributes<HTMLButtonElement>)}
+            onClick={handleConfirm}
+          >
+            Update Sorting
+          </button>
           <button onClick={handleCancel}>Cancel</button>
         </ui-title-bar>
 

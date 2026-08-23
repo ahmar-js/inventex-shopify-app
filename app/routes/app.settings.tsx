@@ -16,6 +16,11 @@ import { boundary } from "@shopify/shopify-app-react-router/server";
 import db from "../db.server";
 import { authenticate } from "../shopify.server";
 import { normalizeRedirectMode, normalizeRedirectPath } from "../services/hide";
+import {
+  cancelAllPendingVariantHides,
+  enqueueRepublishHiddenVariants,
+  enqueueVariantHideScan,
+} from "../services/webhooks.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
@@ -28,6 +33,15 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
         select: { status: true },
       })
     : null;
+  const variantLockJob = settings?.variantHideJobId
+    ? await db.job.findFirst({
+        where: { id: settings.variantHideJobId, shop: session.shop },
+        select: { status: true },
+      })
+    : null;
+  const hiddenVariantCount = await db.variantInventoryState.count({
+    where: { shop: session.shop, restored: false },
+  });
   return {
     autoSortNewCollections: settings?.autoSortNewCollections ?? true,
     sortContinueSellingAsOos: settings?.sortContinueSellingAsOos ?? false,
@@ -35,6 +49,13 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     redirectPath: settings?.redirectPath ?? "/",
     hideSettingsLocked:
       lockJob?.status === "PENDING" || lockJob?.status === "PROCESSING",
+    variantHideEnabled: settings?.variantHideEnabled ?? false,
+    variantHideEligible: settings?.variantHideEligible ?? false,
+    variantHideCatalogCount: settings?.variantHideCatalogCount ?? null,
+    variantHideSettingsLocked:
+      variantLockJob?.status === "PENDING" ||
+      variantLockJob?.status === "PROCESSING",
+    hiddenVariantCount,
   };
 };
 
@@ -70,6 +91,22 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       };
     }
   }
+  if (current?.variantHideJobId) {
+    const lockJob = await db.job.findFirst({
+      where: { id: current.variantHideJobId, shop },
+      select: { status: true },
+    });
+    if (lockJob?.status === "PENDING" || lockJob?.status === "PROCESSING") {
+      return {
+        success: false as const,
+        error: "Settings are locked while the variant catalog job runs.",
+      };
+    }
+  }
+
+  const variantHideEnabled = formData.get("variantHideEnabled") === "true";
+  const variantSettingChanged =
+    variantHideEnabled !== (current?.variantHideEnabled ?? false);
 
   await db.shopSettings.upsert({
     where: { shop },
@@ -80,6 +117,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         formData.get("sortContinueSellingAsOos") === "true",
       redirectMode,
       redirectPath,
+      variantHideEnabled,
+      variantHideEligible: false,
     },
     update: {
       autoSortNewCollections: formData.get("autoSortNewCollections") === "true",
@@ -87,8 +126,30 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         formData.get("sortContinueSellingAsOos") === "true",
       redirectMode,
       redirectPath,
+      variantHideEnabled,
+      ...(variantHideEnabled ? {} : { variantHideEligible: false }),
     },
   });
+  if (variantSettingChanged) {
+    if (variantHideEnabled) {
+      const result = await enqueueVariantHideScan(shop);
+      await db.shopSettings.update({
+        where: { shop },
+        data: {
+          variantHideEligible: false,
+          variantHideCatalogCount: null,
+          variantHideJobId: result.job.id,
+        },
+      });
+    } else {
+      await cancelAllPendingVariantHides(shop);
+      const result = await enqueueRepublishHiddenVariants(shop);
+      await db.shopSettings.update({
+        where: { shop },
+        data: { variantHideEligible: false, variantHideJobId: result.job.id },
+      });
+    }
+  }
   return { success: true as const };
 };
 
@@ -102,7 +163,13 @@ export default function Settings() {
     data.sortContinueSellingAsOos,
   );
   const [redirectMode, setRedirectMode] = useState(data.redirectMode);
-  const busy = navigation.state !== "idle" || data.hideSettingsLocked;
+  const [variantHideEnabled, setVariantHideEnabled] = useState(
+    data.variantHideEnabled,
+  );
+  const busy =
+    navigation.state !== "idle" ||
+    data.hideSettingsLocked ||
+    data.variantHideSettingsLocked;
 
   useEffect(() => {
     if (!actionData) return;
@@ -134,6 +201,19 @@ export default function Settings() {
             finishes.
           </s-banner>
         )}
+        {data.variantHideSettingsLocked && (
+          <s-banner tone="info">
+            Variant hide settings are locked while the catalog job finishes.
+          </s-banner>
+        )}
+        {data.variantHideEnabled &&
+          data.variantHideCatalogCount !== null &&
+          !data.variantHideEligible && (
+            <s-banner tone="warning">
+              Variant hiding is paused because the Online Store has more than
+              500 published products.
+            </s-banner>
+          )}
 
         <s-section heading="Collection sorting">
           <s-stack direction="block" gap="base">
@@ -217,6 +297,37 @@ export default function Settings() {
             <s-text color="subdued">
               Redirects are created only for products hidden by Inventex and
               deleted when those products are restored.
+            </s-text>
+          </s-stack>
+        </s-section>
+
+        <s-section heading="Variant hiding (beta)">
+          <s-stack direction="block" gap="base">
+            <input
+              type="hidden"
+              name="variantHideEnabled"
+              value={String(variantHideEnabled)}
+            />
+            <label style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+              <input
+                type="checkbox"
+                checked={variantHideEnabled}
+                disabled={busy}
+                onChange={(event) =>
+                  setVariantHideEnabled(event.target.checked)
+                }
+              />
+              <span>
+                <strong>Hide sold-out variants</strong>
+                <br />
+                Unpublish only sold-out variants from the Online Store and
+                republish them on restock. Products with an available variant
+                stay published.
+              </span>
+            </label>
+            <s-text color="subdued">
+              Available for catalogs with up to 500 published products.
+              Currently hidden by Inventex: {data.hiddenVariantCount} variants.
             </s-text>
           </s-stack>
         </s-section>

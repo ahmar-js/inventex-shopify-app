@@ -26,6 +26,14 @@ import {
   syncHideAutomationForAvailability,
   unhideProductToOnlineStore,
 } from "./hide.server";
+import {
+  clearVariantHideJobLock,
+  dispatchVariantHideScan,
+  hideVariantFromOnlineStore,
+  republishAllHiddenVariants,
+  syncVariantHideForAvailability,
+  unhideVariantToOnlineStore,
+} from "./variant-hide.server";
 import { enqueueProductEvaluation, JOB_TYPES } from "./webhooks.server";
 
 const MAX_BATCH_SIZE = 25;
@@ -177,9 +185,14 @@ async function processJob(job: Job) {
   if (job.type === JOB_TYPES.PRODUCT_DELETE) {
     const productId = productGidFromPayload(data);
     if (productId) {
-      await db.productAvailabilityState.deleteMany({
-        where: { shop: job.shop, productId },
-      });
+      await db.$transaction([
+        db.productAvailabilityState.deleteMany({
+          where: { shop: job.shop, productId },
+        }),
+        db.variantInventoryState.deleteMany({
+          where: { shop: job.shop, productId },
+        }),
+      ]);
     }
     return;
   }
@@ -198,10 +211,15 @@ async function processJob(job: Job) {
       );
       await persistProductAvailability(job.shop, availability);
       await syncHideAutomationForAvailability(job.shop, availability, job.id);
-      if (data.reason !== "hideScan") {
+      await syncVariantHideForAvailability(job.shop, availability, job.id);
+      if (data.reason !== "hideScan" && data.reason !== "variantHideScan") {
         await maybeFireAlertsForAvailability(job.shop, availability);
       }
-      if (data.reason !== "collectionBootstrap" && data.reason !== "hideScan") {
+      if (
+        data.reason !== "collectionBootstrap" &&
+        data.reason !== "hideScan" &&
+        data.reason !== "variantHideScan"
+      ) {
         await enqueueSortsForProduct(admin, job.shop, productId);
       }
       logger.info("Product availability evaluated", {
@@ -210,9 +228,14 @@ async function processJob(job: Job) {
       });
     } catch (error) {
       if (error instanceof ProductNotFoundError) {
-        await db.productAvailabilityState.deleteMany({
-          where: { shop: job.shop, productId },
-        });
+        await db.$transaction([
+          db.productAvailabilityState.deleteMany({
+            where: { shop: job.shop, productId },
+          }),
+          db.variantInventoryState.deleteMany({
+            where: { shop: job.shop, productId },
+          }),
+        ]);
         return;
       }
       throw error;
@@ -291,6 +314,92 @@ async function processJob(job: Job) {
       });
     }
     await clearHideJobLock(job.shop, job.id);
+    return;
+  }
+
+  if (job.type === JOB_TYPES.HIDE_VARIANT) {
+    const productId = productGidFromPayload(data);
+    const variantId = typeof data.variantId === "string" ? data.variantId : null;
+    if (!productId || !variantId) {
+      throw new Error("Variant hide job is missing productId or variantId");
+    }
+    const { admin } = await unauthenticated.admin(job.shop);
+    try {
+      const availability = await evaluateProductAvailability(
+        admin,
+        job.shop,
+        productId,
+      );
+      await persistProductAvailability(job.shop, availability);
+      const variant = availability.variants.find(
+        (candidate) => candidate.variantId === variantId,
+      );
+      if (availability.ignored || variant?.status !== "soldOut") {
+        await syncVariantHideForAvailability(job.shop, availability, job.id);
+        return;
+      }
+      await hideVariantFromOnlineStore(
+        admin,
+        job.shop,
+        productId,
+        variantId,
+      );
+    } catch (error) {
+      if (error instanceof ProductNotFoundError) {
+        await db.$transaction([
+          db.productAvailabilityState.deleteMany({
+            where: { shop: job.shop, productId },
+          }),
+          db.variantInventoryState.deleteMany({
+            where: { shop: job.shop, productId },
+          }),
+        ]);
+        return;
+      }
+      throw error;
+    }
+    return;
+  }
+
+  if (job.type === JOB_TYPES.UNHIDE_VARIANT) {
+    const variantId = typeof data.variantId === "string" ? data.variantId : null;
+    if (!variantId) throw new Error("Variant unhide job is missing variantId");
+    const { admin } = await unauthenticated.admin(job.shop);
+    await unhideVariantToOnlineStore(admin, job.shop, variantId);
+    return;
+  }
+
+  if (job.type === JOB_TYPES.VARIANT_HIDE_SCAN) {
+    const settings = await db.shopSettings.findUnique({
+      where: { shop: job.shop },
+      select: { variantHideEnabled: true },
+    });
+    if (settings?.variantHideEnabled) {
+      const { admin } = await unauthenticated.admin(job.shop);
+      const result = await dispatchVariantHideScan(admin, job.shop, job.id);
+      logger.info("Variant hide catalog scan completed", {
+        ...jobContext(job),
+        ...result,
+      });
+    }
+    await clearVariantHideJobLock(job.shop, job.id);
+    return;
+  }
+
+  if (job.type === JOB_TYPES.REPUBLISH_HIDDEN_VARIANTS) {
+    const settings = await db.shopSettings.findUnique({
+      where: { shop: job.shop },
+      select: { variantHideEnabled: true },
+    });
+    if (!settings?.variantHideEnabled) {
+      const { admin } = await unauthenticated.admin(job.shop);
+      const restored = await republishAllHiddenVariants(admin, job.shop);
+      logger.info("Inventex-hidden variants restored", {
+        ...jobContext(job),
+        variantCount: restored,
+      });
+    }
+    await clearVariantHideJobLock(job.shop, job.id);
     return;
   }
 
@@ -442,6 +551,13 @@ async function rescheduleOrFail(job: Job, error: unknown) {
   ) {
     await clearHideJobLock(job.shop, job.id);
   }
+  if (
+    !shouldRetry &&
+    (job.type === JOB_TYPES.VARIANT_HIDE_SCAN ||
+      job.type === JOB_TYPES.REPUBLISH_HIDDEN_VARIANTS)
+  ) {
+    await clearVariantHideJobLock(job.shop, job.id);
+  }
 
   logger[shouldRetry ? "warn" : "error"](
     shouldRetry ? "Job scheduled for retry" : "Job failed permanently",
@@ -527,10 +643,15 @@ function resourceContext(jobType: string, payload: Record<string, unknown>) {
   }
   if (
     (jobType === JOB_TYPES.HIDE_PRODUCT ||
-      jobType === JOB_TYPES.UNHIDE_PRODUCT) &&
+      jobType === JOB_TYPES.UNHIDE_PRODUCT ||
+      jobType === JOB_TYPES.HIDE_VARIANT ||
+      jobType === JOB_TYPES.UNHIDE_VARIANT) &&
     payload.productId
   ) {
-    return { productId: String(payload.productId) };
+    return {
+      productId: String(payload.productId),
+      ...(payload.variantId ? { variantId: String(payload.variantId) } : {}),
+    };
   }
   if (payload.inventory_item_id) {
     return { inventoryItemId: String(payload.inventory_item_id) };

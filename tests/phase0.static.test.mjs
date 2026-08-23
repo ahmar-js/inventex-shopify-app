@@ -7,7 +7,7 @@ const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
 test("Shopify config has the Phase 0 subscriptions, scopes, and API version", async () => {
   const config = await read("shopify.app.toml");
   for (const expected of [
-    'api_version = "2026-04"',
+    'api_version = "2026-07"',
     'topics = [ "inventory_levels/update" ]',
     'topics = [ "products/update" ]',
     'topics = [ "products/delete" ]',
@@ -56,22 +56,22 @@ test("worker claims PostgreSQL jobs safely and implements throttle backoff", asy
   assert.match(worker, /runAfter: new Date/);
 });
 
-test("fresh OAuth installs create default settings on API 2026-04", async () => {
+test("fresh OAuth installs create default settings on API 2026-07", async () => {
   const source = await read("app/shopify.server.ts");
   const graphqlConfig = await read(".graphqlrc.ts");
-  assert.match(source, /apiVersion: ApiVersion\.April26/);
-  assert.match(graphqlConfig, /apiVersion: ApiVersion\.April26/);
+  assert.match(source, /apiVersion: ApiVersion\.July26/);
+  assert.match(graphqlConfig, /apiVersion: ApiVersion\.July26/);
   assert.match(source, /afterAuth/);
   assert.match(source, /shopSettings\.upsert/);
   assert.match(source, /create: \{ shop: session\.shop \}/);
 });
 
-test("production cron endpoints fail closed and Docker deploys migrations", async () => {
+test("cron endpoints always fail closed and Docker deploys migrations", async () => {
   const cronAuth = await read("app/services/cron-auth.server.ts");
   const dockerfile = await read("Dockerfile");
   const packageJson = JSON.parse(await read("package.json"));
 
-  assert.match(cronAuth, /process\.env\.NODE_ENV === "production"/);
+  assert.doesNotMatch(cronAuth, /allowing cron request outside production/);
   assert.match(cronAuth, /Cron is not configured/);
   assert.match(dockerfile, /FROM node:20-alpine AS build/);
   assert.match(dockerfile, /RUN npm ci\n/);
@@ -90,6 +90,7 @@ test("shop redaction covers every shop-owned model", async () => {
     "excludedProduct",
     "inventoryState",
     "productAvailabilityState",
+    "variantInventoryState",
     "shopSettings",
     "job",
     "session",

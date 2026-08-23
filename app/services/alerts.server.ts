@@ -11,15 +11,12 @@
  *     DAILY/WEEKLY → write to AlertQueue; flushed by the cron endpoint
  */
 
-import type { AdminApiContext } from "@shopify/shopify-app-react-router/server";
 import db from "../db.server";
 import { sendAlertEmail } from "./email.server";
 import type { AlertEmailPayload } from "./email.server";
-import {
-  evaluateProductAvailability,
-  type ProductAvailabilityResult,
-} from "./availability.server";
+import type { ProductAvailabilityResult } from "./availability.server";
 import type { AvailabilityStatus } from "./availability";
+import { isDigestDue } from "./alerts-schedule";
 
 // ─── Constants ───────────────────────────────────────────────
 
@@ -47,15 +44,6 @@ interface InventoryTarget {
  * changed. Safe to call for every webhook — returns early when alerts are
  * disabled or not configured.
  */
-export async function maybeFireAlerts(
-  admin: AdminApiContext,
-  shop: string,
-  productId: string,
-): Promise<void> {
-  const availability = await evaluateProductAvailability(admin, shop, productId);
-  await maybeFireAlertsForAvailability(shop, availability);
-}
-
 export async function maybeFireAlertsForAvailability(
   shop: string,
   data: ProductAvailabilityResult,
@@ -269,7 +257,9 @@ async function enqueueAlert({
  * Finds every shop that has unprocessed queue items, checks whether it is
  * time to send their digest, assembles and sends it.
  */
-export async function flushAlertQueue(): Promise<{ processed: number }> {
+export async function flushAlertQueue(
+  now = new Date(),
+): Promise<{ processed: number }> {
   const unprocessed = await db.alertQueue.findMany({
     where:   { processed: false },
     orderBy: { queuedAt: "asc" },
@@ -298,7 +288,7 @@ export async function flushAlertQueue(): Promise<{ processed: number }> {
     if (emails.length === 0) continue;
 
     // Check if it is time to send based on the shop's schedule
-    if (!isDueForDigest(settings)) {
+    if (!isDigestDue(settings, now)) {
       console.log(`[alerts] Shop ${shop} not yet due for digest, skipping`);
       continue;
     }
@@ -327,14 +317,27 @@ export async function flushAlertQueue(): Promise<{ processed: number }> {
       const { sendDigestEmail } = await import("./email.server");
       await sendDigestEmail({ to: emails, shop, subject, items: digestItems });
 
-      // Mark all items for this shop as processed
-      await db.alertQueue.updateMany({
-        where: { shop, processed: false },
-        data:  { processed: true },
-      });
-
-      // Record in AlertSent so cooldown works for queued alerts too
-      await recordAlertSent(shop, "*", "*", "DIGEST", frequency);
+      const itemIds = items.map(({ id }) => id);
+      await db.$transaction([
+        db.alertQueue.updateMany({
+          where: { shop, id: { in: itemIds }, processed: false },
+          data: { processed: true },
+        }),
+        db.alertSettings.updateMany({
+          where: { shop },
+          data: { lastDigestSentAt: now },
+        }),
+        db.alertSent.create({
+          data: {
+            shop,
+            productId: "*",
+            variantId: "*",
+            alertType: "DIGEST",
+            frequency,
+            sentAt: now,
+          },
+        }),
+      ]);
 
       totalProcessed += items.length;
     } catch (err) {
@@ -387,90 +390,4 @@ async function recordAlertSent(
   await db.alertSent.create({
     data: { shop, productId, variantId, alertType, frequency },
   });
-}
-
-/**
- * Determine if a shop's digest is due now.
- * The cron endpoint is called at whatever schedule the operator sets;
- * this function checks whether the shop's configured send time has passed
- * since the last digest was sent (with a ±30 min tolerance window).
- *
- * Implementation note: we use UTC offsets approximated by timezone name
- * for simplicity. For precise timezone handling in production, install
- * the `luxon` or `date-fns-tz` package.
- */
-function isDueForDigest(settings: {
-  alertFrequency:    string;
-  dailyAlertHour:    number;
-  dailyAlertAmPm:    string;
-  dailyAlertTimezone: string;
-}): boolean {
-  // Convert configured hour to 24h UTC
-  let hour24 = settings.dailyAlertHour % 12;
-  if (settings.dailyAlertAmPm === "PM") hour24 += 12;
-
-  // Approximate UTC offset from common timezone names
-  const utcOffset = guessUtcOffsetHours(settings.dailyAlertTimezone);
-  const targetUtcHour = (hour24 - utcOffset + 24) % 24;
-
-  const now      = new Date();
-  const nowHour  = now.getUTCHours();
-  const nowMin   = now.getUTCMinutes();
-
-  // Allow a ±30 minute window around the target UTC hour
-  const nowTotalMin    = nowHour * 60 + nowMin;
-  const targetTotalMin = targetUtcHour * 60;
-  const WINDOW_MIN     = 30;
-
-  const diff = Math.abs(nowTotalMin - targetTotalMin);
-  const diffWrapped = Math.min(diff, 1440 - diff); // handle midnight wrap
-
-  return diffWrapped <= WINDOW_MIN;
-}
-
-/**
- * Very lightweight UTC offset table for the most common IANA zone names.
- * In production, replace with luxon or @date-fns/tz for DST accuracy.
- */
-function guessUtcOffsetHours(tz: string): number {
-  const table: Record<string, number> = {
-    "America/New_York":     -5,
-    "America/Chicago":      -6,
-    "America/Denver":       -7,
-    "America/Los_Angeles":  -8,
-    "America/Phoenix":      -7,
-    "America/Anchorage":    -9,
-    "Pacific/Honolulu":     -10,
-    "America/Toronto":      -5,
-    "America/Vancouver":    -8,
-    "America/Sao_Paulo":    -3,
-    "America/Bogota":       -5,
-    "America/Mexico_City":  -6,
-    "America/Buenos_Aires": -3,
-    "Europe/London":         0,
-    "Europe/Paris":          1,
-    "Europe/Berlin":         1,
-    "Europe/Rome":           1,
-    "Europe/Madrid":         1,
-    "Europe/Amsterdam":      1,
-    "Europe/Stockholm":      1,
-    "Europe/Moscow":         3,
-    "Africa/Cairo":          2,
-    "Africa/Johannesburg":   2,
-    "Africa/Lagos":          1,
-    "Asia/Dubai":            4,
-    "Asia/Karachi":          5,
-    "Asia/Kolkata":          5, // +5:30 rounded
-    "Asia/Dhaka":            6,
-    "Asia/Bangkok":          7,
-    "Asia/Singapore":        8,
-    "Asia/Shanghai":         8,
-    "Asia/Tokyo":            9,
-    "Asia/Seoul":            9,
-    "Australia/Sydney":     10,
-    "Australia/Melbourne":  10,
-    "Australia/Perth":       8,
-    "Pacific/Auckland":     12,
-  };
-  return table[tz] ?? 0;
 }
