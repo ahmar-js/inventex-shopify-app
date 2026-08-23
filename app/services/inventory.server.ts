@@ -76,7 +76,12 @@ export async function handleInventoryUpdate(
       );
       return;
     }
-    await handleOutOfStock(admin, shop, productId, settings.strategy as Strategy);
+    await handleOutOfStock(
+      admin,
+      shop,
+      productId,
+      settings.strategy as Strategy,
+    );
     // Fire stock alerts after handling automation
     await maybeFireAlerts(admin, shop, productId).catch((err) =>
       console.error("[inventory] maybeFireAlerts error:", err),
@@ -154,9 +159,7 @@ async function isProductInScope(
 
   const json = await response.json();
   const productCollectionIds = new Set(
-    (json.data?.product?.collections?.edges ?? []).map(
-      (e: any) => e.node.id,
-    ),
+    (json.data?.product?.collections?.edges ?? []).map((e: any) => e.node.id),
   );
 
   const ruleIds = rules.map((r: { collectionId: string }) => r.collectionId);
@@ -230,9 +233,7 @@ async function handleOutOfStock(
   });
 
   if (existing && !existing.restored) {
-    console.log(
-      `[inventory] Product ${productId} already handled, skipping.`,
-    );
+    console.log(`[inventory] Product ${productId} already handled, skipping.`);
     return;
   }
 
@@ -253,7 +254,10 @@ async function handleOutOfStock(
   } catch (err: any) {
     caughtError = err;
     errorMessage = err?.message ?? String(err);
-    console.error(`[inventory] Error applying ${strategy} to ${productId}:`, err);
+    console.error(
+      `[inventory] Error applying ${strategy} to ${productId}:`,
+      err,
+    );
   }
 
   // Record what we did (or failed to do) so we can audit/restore later
@@ -401,15 +405,20 @@ async function pushProductToBottom(
     );
 
     const collectionsJson = await collectionsResponse.json();
-    const collections =
-      collectionsJson.data?.product?.collections?.edges ?? [];
+    const collections = collectionsJson.data?.product?.collections?.edges ?? [];
 
     if (collections.length === 0) {
-      console.log(`[inventory] Product ${productId} is not in any collections.`);
+      console.log(
+        `[inventory] Product ${productId} is not in any collections.`,
+      );
       return JSON.stringify([]);
     }
 
-    const collectionData: Array<{ id: string; title: string; sortOrder: string }> = [];
+    const collectionData: Array<{
+      id: string;
+      title: string;
+      sortOrder: string;
+    }> = [];
 
     for (const edge of collections) {
       const collection = edge.node;
@@ -440,7 +449,7 @@ async function pushProductToBottom(
             variables: {
               input: {
                 id: collection.id,
-                sortOrder: "MANUAL",
+                sortOrder: "MANUAL" as never,
               },
             },
           },
@@ -475,8 +484,7 @@ async function pushProductToBottom(
       );
 
       const productsJson = await productsResponse.json();
-      const productEdges =
-        productsJson.data?.collection?.products?.edges ?? [];
+      const productEdges = productsJson.data?.collection?.products?.edges ?? [];
       const allProductIds = productEdges.map((e: any) => e.node.id);
 
       const currentIndex = allProductIds.indexOf(productId);
@@ -669,10 +677,7 @@ async function restoreProduct(
       );
     }
   } catch (error) {
-    console.error(
-      `[inventory] Failed to restore product ${productId}:`,
-      error,
-    );
+    console.error(`[inventory] Failed to restore product ${productId}:`, error);
     throw error;
   }
 }
@@ -728,7 +733,7 @@ async function restoreCollectionSortOrder(
           variables: {
             input: {
               id: col.id,
-              sortOrder: col.sortOrder,
+              sortOrder: col.sortOrder as never,
             },
           },
         },
@@ -748,7 +753,10 @@ async function restoreCollectionSortOrder(
       }
     }
   } catch (error) {
-    console.error(`[inventory] Failed to restore collection sort order:`, error);
+    console.error(
+      `[inventory] Failed to restore collection sort order:`,
+      error,
+    );
     throw error;
   }
 }
@@ -866,10 +874,7 @@ export async function scanExistingProducts(
           await handleOutOfStock(admin, shop, product.id, strategy);
           affected++;
         } catch (error) {
-          console.error(
-            `[scan] Error processing "${product.title}":`,
-            error,
-          );
+          console.error(`[scan] Error processing "${product.title}":`, error);
         }
       }
     }

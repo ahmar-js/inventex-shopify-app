@@ -32,6 +32,8 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     strategy: settings?.strategy ?? "HIDE",
     restoreBehavior: settings?.restoreBehavior ?? "ALWAYS",
     enabled: settings?.enabled ?? false,
+    autoSortNewCollections: settings?.autoSortNewCollections ?? true,
+    sortContinueSellingAsOos: settings?.sortContinueSellingAsOos ?? false,
     collectionRules: collectionRules.map((r: any) => ({
       collectionId: r.collectionId,
       collectionTitle: r.collectionTitle,
@@ -115,6 +117,10 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const strategy = formData.get("strategy") as string;
   const restoreBehavior = formData.get("restoreBehavior") as string;
   const enabled = formData.get("enabled") === "true";
+  const autoSortNewCollections =
+    formData.get("autoSortNewCollections") === "true";
+  const sortContinueSellingAsOos =
+    formData.get("sortContinueSellingAsOos") === "true";
 
   // Check if automation is being enabled for the first time
   const current = await db.shopSettings.findUnique({ where: { shop } });
@@ -122,8 +128,21 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
   await db.shopSettings.upsert({
     where: { shop },
-    create: { shop, strategy, restoreBehavior, enabled },
-    update: { strategy, restoreBehavior, enabled },
+    create: {
+      shop,
+      strategy,
+      restoreBehavior,
+      enabled,
+      autoSortNewCollections,
+      sortContinueSellingAsOos,
+    },
+    update: {
+      strategy,
+      restoreBehavior,
+      enabled,
+      autoSortNewCollections,
+      sortContinueSellingAsOos,
+    },
   });
 
   // Auto-scan when toggling ON (first enable or re-enable)
@@ -137,8 +156,15 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 // ─── Component ───────────────────────────────────────────────
 
 export default function Settings() {
-  const { strategy, restoreBehavior, enabled, collectionRules, excludedProducts } =
-    useLoaderData<typeof loader>();
+  const {
+    strategy,
+    restoreBehavior,
+    enabled,
+    autoSortNewCollections,
+    sortContinueSellingAsOos,
+    collectionRules,
+    excludedProducts,
+  } = useLoaderData<typeof loader>();
   const navigation = useNavigation();
   const collectionFetcher = useFetcher();
   const productFetcher = useFetcher();
@@ -324,6 +350,66 @@ export default function Settings() {
                 Enable inventory automation
               </s-text>
             </label>
+          </s-box>
+        </s-section>
+
+        <s-section heading="Collection sorting">
+          <s-box padding="base" borderWidth="base" borderRadius="base">
+            <s-stack direction="block" gap="base">
+              <label
+                style={{ display: "flex", alignItems: "flex-start", gap: "8px" }}
+              >
+                <input
+                  type="hidden"
+                  name="autoSortNewCollections"
+                  value={autoSortNewCollections ? "true" : "false"}
+                />
+                <input
+                  type="checkbox"
+                  defaultChecked={autoSortNewCollections}
+                  onChange={(event) => {
+                    const hidden = event.target
+                      .previousElementSibling as HTMLInputElement;
+                    hidden.value = event.target.checked ? "true" : "false";
+                  }}
+                />
+                <s-stack direction="block" gap="small">
+                  <span style={{ fontWeight: 600 }}>Auto-sort new collections</span>
+                  <s-text color="subdued">
+                    Automatically enable Inventex sorting when Shopify creates a
+                    collection.
+                  </s-text>
+                </s-stack>
+              </label>
+
+              <label
+                style={{ display: "flex", alignItems: "flex-start", gap: "8px" }}
+              >
+                <input
+                  type="hidden"
+                  name="sortContinueSellingAsOos"
+                  value={sortContinueSellingAsOos ? "true" : "false"}
+                />
+                <input
+                  type="checkbox"
+                  defaultChecked={sortContinueSellingAsOos}
+                  onChange={(event) => {
+                    const hidden = event.target
+                      .previousElementSibling as HTMLInputElement;
+                    hidden.value = event.target.checked ? "true" : "false";
+                  }}
+                />
+                <s-stack direction="block" gap="small">
+                  <span style={{ fontWeight: 600 }}>
+                    Separate continue-selling products
+                  </span>
+                  <s-text color="subdued">
+                    Place continue-selling products after in-stock products and
+                    before true out-of-stock products.
+                  </s-text>
+                </s-stack>
+              </label>
+            </s-stack>
           </s-box>
         </s-section>
 

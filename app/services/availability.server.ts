@@ -9,9 +9,6 @@ import {
   type VariantAvailability,
 } from "./availability";
 
-const VARIANT_PAGE_SIZE = 100;
-const INVENTORY_LEVEL_PAGE_SIZE = 250;
-
 interface InventoryLevelNode {
   location: {
     id: string;
@@ -156,7 +153,7 @@ async function fetchProductAvailabilityData(
             id
             title
             tags
-            variants(first: ${VARIANT_PAGE_SIZE}, after: $cursor) {
+            variants(first: 100, after: $cursor) {
               nodes {
                 id
                 title
@@ -164,7 +161,7 @@ async function fetchProductAvailabilityData(
                 inventoryItem {
                   id
                   tracked
-                  inventoryLevels(first: ${INVENTORY_LEVEL_PAGE_SIZE}) {
+                  inventoryLevels(first: 250) {
                     nodes {
                       location {
                         id
@@ -243,7 +240,7 @@ async function fetchInventoryLevelPage(
     `#graphql
       query inventoryLevelPage($inventoryItemId: ID!, $cursor: String!) {
         inventoryItem(id: $inventoryItemId) {
-          inventoryLevels(first: ${INVENTORY_LEVEL_PAGE_SIZE}, after: $cursor) {
+          inventoryLevels(first: 250, after: $cursor) {
             nodes {
               location { id name fulfillsOnlineOrders }
               quantities(names: ["available"]) { name quantity }

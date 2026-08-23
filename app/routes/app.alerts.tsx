@@ -16,7 +16,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   let primaryEmail = "";
   try {
     const res  = await admin.graphql(`#graphql
-      query { shop { email } }`);
+      query InventexAlertShopEmail { shop { email } }`);
     const json = await res.json();
     primaryEmail = json.data?.shop?.email ?? "";
   } catch {

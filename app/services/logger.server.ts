@@ -9,10 +9,15 @@ export interface LogContext {
   productId?: string;
   inventoryItemId?: string;
   collectionId?: string;
+  productCount?: number;
+  sortOrder?: string;
   attempts?: number;
   delayMs?: number;
+  runAfter?: Date;
+  reason?: string;
   processed?: number;
   failed?: number;
+  deferred?: number;
   error?: unknown;
 }
 

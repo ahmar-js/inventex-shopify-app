@@ -5,6 +5,7 @@ import { authenticate } from "../shopify.server";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { useAppBridge } from "@shopify/app-bridge-react";
 import db from "../db.server";
+import { handleCollectionSortAction } from "../services/collection-sort-actions.server";
 
 // ─── Loader ──────────────────────────────────────────────────
 
@@ -48,7 +49,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
   const json = await response.json();
   const edges: any[] = json.data?.collections?.edges ?? [];
-  const pageInfo = json.data?.collections?.pageInfo ?? {};
+  const pageInfo = json.data?.collections?.pageInfo;
 
   const collections = edges.map((edge: any) => ({
     id: edge.node.id as string,
@@ -63,21 +64,24 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const collectionIds = collections.map((c) => c.id);
   const autoSortingRows = await db.collectionAutoSorting.findMany({
     where: { shop, collectionId: { in: collectionIds } },
-    select: { collectionId: true, enabled: true },
+    select: { collectionId: true, enabled: true, baseSortOrder: true },
   });
   // Build a map: collectionId -> "enabled"|"disabled". Absent row = disabled (opt-in model)
   const autoSortingMap: Record<string, string> = {};
+  const baseSortOrderMap: Record<string, string> = {};
   for (const row of autoSortingRows) {
     autoSortingMap[row.collectionId] = row.enabled ? "enabled" : "disabled";
+    if (row.enabled) baseSortOrderMap[row.collectionId] = row.baseSortOrder;
   }
 
   return {
     collections,
     autoSortingMap,
+    baseSortOrderMap,
     pageInfo: {
-      hasNextPage: pageInfo.hasNextPage ?? false,
-      hasPreviousPage: pageInfo.hasPreviousPage ?? false,
-      endCursor: pageInfo.endCursor ?? null,
+      hasNextPage: pageInfo?.hasNextPage ?? false,
+      hasPreviousPage: pageInfo?.hasPreviousPage ?? false,
+      endCursor: pageInfo?.endCursor ?? null,
     },
   };
 };
@@ -85,84 +89,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 // ─── Action ──────────────────────────────────────────────────
 
 export const action = async ({ request }: ActionFunctionArgs) => {
-  const { admin, session } = await authenticate.admin(request);
-  const shop     = session.shop;
-  const formData = await request.formData();
-  const _action  = formData.get("_action") as string | null;
-
-  // ── setAutoSorting: persist a single collection's toggle ──────────────
-  if (_action === "setAutoSorting") {
-    const collectionId = formData.get("collectionId") as string;
-    const enabled      = formData.get("enabled") === "true";
-    try {
-      await db.collectionAutoSorting.upsert({
-        where:  { shop_collectionId: { shop, collectionId } },
-        update: { enabled },
-        create: { shop, collectionId, enabled },
-      });
-      return { _action: "setAutoSorting" as const, success: true, collectionId, enabled };
-    } catch {
-      return { _action: "setAutoSorting" as const, success: false, collectionId, error: "Failed to save auto sorting setting." };
-    }
-  }
-
-  // ── enableAllAutoSorting: enable every collection on this page ─────────
-  if (_action === "enableAllAutoSorting") {
-    const collectionIds: string[] = JSON.parse((formData.get("collectionIds") as string) ?? "[]");
-    try {
-      await db.$transaction(
-        collectionIds.map((cid) =>
-          db.collectionAutoSorting.upsert({
-            where:  { shop_collectionId: { shop, collectionId: cid } },
-            update: { enabled: true },
-            create: { shop, collectionId: cid, enabled: true },
-          }),
-        ),
-      );
-      return { _action: "enableAllAutoSorting" as const, success: true, count: collectionIds.length };
-    } catch {
-      return { _action: "enableAllAutoSorting" as const, success: false, error: "Failed to enable auto sorting for all collections." };
-    }
-  }
-
-  // ── changeSortOrder (default) ──────────────────────────────────────────
-  const collectionId = formData.get("collectionId") as string;
-  const sortOrder    = formData.get("sortOrder")    as string;
-
-  if (!collectionId || !sortOrder) {
-    return { _action: "changeSortOrder" as const, success: false, error: "Missing required fields.", collectionId: collectionId ?? "" };
-  }
-
-  try {
-    const response = await admin.graphql(
-      `#graphql
-      mutation collectionUpdate($input: CollectionInput!) {
-        collectionUpdate(input: $input) {
-          collection { id sortOrder }
-          userErrors  { field message }
-        }
-      }`,
-      { variables: { input: { id: collectionId, sortOrder } } },
-    );
-
-    const json       = await response.json();
-    const userErrors = (json.data?.collectionUpdate?.userErrors ?? []) as { field: string[]; message: string }[];
-
-    if (userErrors.length > 0) {
-      return { _action: "changeSortOrder" as const, success: false, error: userErrors[0].message, collectionId };
-    }
-
-    // Also persist that auto sorting is now enabled for this collection
-    await db.collectionAutoSorting.upsert({
-      where:  { shop_collectionId: { shop, collectionId } },
-      update: { enabled: true },
-      create: { shop, collectionId, enabled: true },
-    });
-
-    return { _action: "changeSortOrder" as const, success: true, collectionId, sortOrder };
-  } catch {
-    return { _action: "changeSortOrder" as const, success: false, error: "Failed to connect to Shopify. Please try again.", collectionId };
-  }
+  return handleCollectionSortAction(request);
 };
 
 // ─── Helpers ─────────────────────────────────────────────────
@@ -218,7 +145,8 @@ const TABLE_STYLES = `
 `;
 
 export default function SortCollection() {
-  const { collections, pageInfo, autoSortingMap } = useLoaderData<typeof loader>();
+  const { collections, pageInfo, autoSortingMap, baseSortOrderMap } =
+    useLoaderData<typeof loader>();
   const fetcher      = useFetcher<ActionData>();   // sort order changes
   const autoFetcher  = useFetcher<ActionData>();   // auto sorting toggle changes
   const shopify      = useAppBridge();
@@ -239,7 +167,10 @@ export default function SortCollection() {
     ),
   );
   const [sortOrderOverride, setSortOrderOverride] = useState<Record<string, string>>(
-    () => Object.fromEntries(collections.map((c) => [c.id, c.sortOrder])),
+    () =>
+      Object.fromEntries(
+        collections.map((c) => [c.id, baseSortOrderMap[c.id] ?? c.sortOrder]),
+      ),
   );
 
   // Refs for fetcher transition tracking
@@ -262,7 +193,7 @@ export default function SortCollection() {
         setAutoSorting((p) => ({ ...p, [data.collectionId]: "enabled" }));
         const label = SORT_ORDER_LABELS[data.sortOrder] ?? data.sortOrder;
         shopify.toast.show(
-          `Sort order for "${info?.title ?? "collection"}" updated to "${label}".`,
+          `Base order for "${info?.title ?? "collection"}" queued as "${label}".`,
         );
       } else if (!data.success) {
         shopify.toast.show(
@@ -284,8 +215,17 @@ export default function SortCollection() {
 
     if (prev !== "idle" && autoFetcher.state === "idle" && autoFetcher.data) {
       const data = autoFetcher.data as ActionData;
-      if (data._action === "setAutoSorting" && !data.success) {
-        shopify.toast.show(data.error ?? "Failed to save auto sorting setting.", { isError: true });
+      if (data._action === "setAutoSorting") {
+        if (data.success) {
+          shopify.toast.show(
+            `Auto Sorting ${data.enabled ? "enable" : "disable"} queued.`,
+          );
+        } else {
+          shopify.toast.show(
+            data.error ?? "Failed to save auto sorting setting.",
+            { isError: true },
+          );
+        }
       } else if (data._action === "enableAllAutoSorting") {
         if (data.success) {
           shopify.toast.show(
@@ -315,8 +255,7 @@ export default function SortCollection() {
     const oldOrder = sortOrderOverride[col.id] ?? "";
     if (newOrder === oldOrder) return;
 
-    // Always open the confirmation modal so the change is saved to Shopify
-    // (Shopify is the source of truth — local state alone won’t survive a refresh)
+    // Shopify remains MANUAL; Inventex persists and applies this base order.
     setPendingChange({
       collectionId: col.id,
       collectionTitle: col.title,
@@ -355,7 +294,16 @@ export default function SortCollection() {
   const handleAutoSortingChange = (collectionId: string, value: string) => {
     setAutoSorting((prev) => ({ ...prev, [collectionId]: value }));
     autoFetcher.submit(
-      { _action: "setAutoSorting", collectionId, enabled: String(value === "enabled") },
+      {
+        _action: "setAutoSorting",
+        collectionId,
+        enabled: String(value === "enabled"),
+        baseSortOrder:
+          sortOrderOverride[collectionId] ??
+          collections.find((collection) => collection.id === collectionId)
+            ?.sortOrder ??
+          "MANUAL",
+      },
       { method: "POST", action: "/app/sort-collection" },
     );
   };
@@ -364,7 +312,7 @@ export default function SortCollection() {
   const enableAllAutoSorting = () => {
     setAutoSorting(Object.fromEntries(collections.map((c) => [c.id, "enabled"])));
     autoFetcher.submit(
-      { _action: "enableAllAutoSorting", collectionIds: JSON.stringify(collections.map((c) => c.id)) },
+      { _action: "enableAllAutoSorting" },
       { method: "POST", action: "/app/sort-collection" },
     );
   };
@@ -478,8 +426,8 @@ export default function SortCollection() {
               <s-banner tone={pendingChange.autoSortingEnabled ? "info" : "warning"}>
                 <s-text>
                   {pendingChange.autoSortingEnabled
-                    ? "The new sort order will be saved to Shopify immediately and managed automatically going forward."
-                    : "Auto Sorting is currently disabled. Confirming will save the new sort order to Shopify and also re-enable Auto Sorting for this collection."}
+                    ? "Inventex will use this as the base order, while Shopify remains set to Manual."
+                    : "Confirming will re-enable Auto Sorting and apply this as the base order while Shopify remains Manual."}
                 </s-text>
               </s-banner>
 

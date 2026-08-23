@@ -10,6 +10,7 @@ node_modules
 /.cache
 /build
 /app/build
+/app/types/
 /public/build/
 /public/_dev
 /app/public/build

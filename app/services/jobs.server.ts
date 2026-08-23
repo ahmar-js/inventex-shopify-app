@@ -7,6 +7,16 @@ import {
   resolveProductGidFromInventoryItem,
 } from "./availability.server";
 import { maybeFireAlertsForAvailability } from "./alerts.server";
+import {
+  collectionGid,
+  CollectionSortDeferredError,
+  disableCollectionAutoSortingNow,
+  enableCollectionAutoSortingNow,
+  enqueueSortsForProduct,
+  handleCollectionUpdateJob,
+  sortCollectionNow,
+  updateCollectionBaseOrderNow,
+} from "./collection-sort.server";
 import { logger } from "./logger.server";
 import { enqueueProductEvaluation, JOB_TYPES } from "./webhooks.server";
 
@@ -32,6 +42,7 @@ export async function runJobBatch(limit = 10) {
   const jobs = await claimJobs(Math.max(1, Math.min(limit, MAX_BATCH_SIZE)));
   let processed = 0;
   let failed = 0;
+  let deferred = 0;
 
   for (const job of jobs) {
     try {
@@ -47,12 +58,17 @@ export async function runJobBatch(limit = 10) {
       processed++;
       logger.info("Job completed", jobContext(job));
     } catch (error) {
+      if (error instanceof CollectionSortDeferredError) {
+        deferred++;
+        await deferJob(job, error);
+        continue;
+      }
       failed++;
       await rescheduleOrFail(job, error);
     }
   }
 
-  return { claimed: jobs.length, processed, failed };
+  return { claimed: jobs.length, processed, failed, deferred };
 }
 
 async function claimJobs(limit: number): Promise<Job[]> {
@@ -192,6 +208,9 @@ async function processJob(job: Job) {
         },
       });
       await maybeFireAlertsForAvailability(job.shop, availability);
+      if (data.reason !== "collectionBootstrap") {
+        await enqueueSortsForProduct(admin, job.shop, productId);
+      }
       logger.info("Product availability evaluated", {
         ...jobContext(job),
         productId,
@@ -208,6 +227,94 @@ async function processJob(job: Job) {
     return;
   }
 
+  if (job.type === JOB_TYPES.COLLECTION_CREATE) {
+    const collectionId = collectionGidFromPayload(data);
+    if (!collectionId)
+      throw new Error("Collection webhook payload is missing id");
+    const settings = await db.shopSettings.findUnique({
+      where: { shop: job.shop },
+      select: { autoSortNewCollections: true },
+    });
+    if (settings?.autoSortNewCollections ?? true) {
+      await db.collectionAutoSorting.upsert({
+        where: { shop_collectionId: { shop: job.shop, collectionId } },
+        update: { enabled: true, disabledReason: null },
+        create: { shop: job.shop, collectionId, enabled: true },
+      });
+      const { admin } = await unauthenticated.admin(job.shop);
+      await enableCollectionAutoSortingNow(admin, job.shop, collectionId);
+    }
+    return;
+  }
+
+  if (job.type === JOB_TYPES.COLLECTION_UPDATE) {
+    const collectionId = collectionGidFromPayload(data);
+    if (!collectionId)
+      throw new Error("Collection webhook payload is missing id");
+    const { admin } = await unauthenticated.admin(job.shop);
+    await handleCollectionUpdateJob(admin, job.shop, collectionId);
+    return;
+  }
+
+  if (job.type === JOB_TYPES.COLLECTION_DELETE) {
+    const collectionId = collectionGidFromPayload(data);
+    if (collectionId) {
+      await db.collectionAutoSorting.deleteMany({
+        where: { shop: job.shop, collectionId },
+      });
+    }
+    return;
+  }
+
+  if (job.type === JOB_TYPES.ENABLE_COLLECTION_SORT) {
+    const collectionId = collectionGidFromPayload(data);
+    if (!collectionId)
+      throw new Error("Enable-sort job is missing collectionId");
+    const { admin } = await unauthenticated.admin(job.shop);
+    await enableCollectionAutoSortingNow(
+      admin,
+      job.shop,
+      collectionId,
+      typeof data.baseSortOrder === "string" ? data.baseSortOrder : undefined,
+    );
+    return;
+  }
+
+  if (job.type === JOB_TYPES.DISABLE_COLLECTION_SORT) {
+    const collectionId = collectionGidFromPayload(data);
+    if (!collectionId)
+      throw new Error("Disable-sort job is missing collectionId");
+    const { admin } = await unauthenticated.admin(job.shop);
+    await disableCollectionAutoSortingNow(admin, job.shop, collectionId);
+    return;
+  }
+
+  if (job.type === JOB_TYPES.UPDATE_COLLECTION_BASE_ORDER) {
+    const collectionId = collectionGidFromPayload(data);
+    const baseSortOrder = data.baseSortOrder;
+    if (!collectionId || typeof baseSortOrder !== "string") {
+      throw new Error(
+        "Base-order job is missing collectionId or baseSortOrder",
+      );
+    }
+    const { admin } = await unauthenticated.admin(job.shop);
+    await updateCollectionBaseOrderNow(
+      admin,
+      job.shop,
+      collectionId,
+      baseSortOrder,
+    );
+    return;
+  }
+
+  if (job.type === JOB_TYPES.SORT_COLLECTION) {
+    const collectionId = collectionGidFromPayload(data);
+    if (!collectionId) throw new Error("Sort job is missing collectionId");
+    const { admin } = await unauthenticated.admin(job.shop);
+    await sortCollectionNow(admin, job.shop, collectionId, job.id);
+    return;
+  }
+
   // Product, collection, uninstall, and customer-compliance events are now
   // durable. Their domain handlers are added in the feature phases that own
   // those behaviors; Phase 0 deliberately performs no inline Shopify writes.
@@ -216,6 +323,24 @@ async function processJob(job: Job) {
     webhookId: payload.webhookId,
     topic: payload.topic,
     ...resourceContext(job.type, data),
+  });
+}
+
+async function deferJob(job: Job, error: CollectionSortDeferredError) {
+  await db.job.updateMany({
+    where: { id: job.id, status: JobStatus.PROCESSING },
+    data: {
+      status: JobStatus.PENDING,
+      runAfter: error.runAfter,
+      lockedAt: null,
+      attempts: { decrement: 1 },
+      lastError: null,
+    },
+  });
+  logger.info("Job deferred", {
+    ...jobContext(job),
+    runAfter: error.runAfter,
+    reason: error.message,
   });
 }
 
@@ -335,6 +460,12 @@ function productGidFromPayload(payload: Record<string, unknown>) {
   if (typeof id !== "string" && typeof id !== "number") return null;
   const value = String(id);
   return value.startsWith("gid://") ? value : `gid://shopify/Product/${value}`;
+}
+
+function collectionGidFromPayload(payload: Record<string, unknown>) {
+  const id = payload.admin_graphql_api_id ?? payload.collectionId ?? payload.id;
+  if (typeof id !== "string" && typeof id !== "number") return null;
+  return collectionGid(id);
 }
 
 function toJson(value: unknown): Prisma.InputJsonValue {

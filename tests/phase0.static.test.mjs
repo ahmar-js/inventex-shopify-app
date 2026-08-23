@@ -58,7 +58,9 @@ test("worker claims PostgreSQL jobs safely and implements throttle backoff", asy
 
 test("fresh OAuth installs create default settings on API 2026-04", async () => {
   const source = await read("app/shopify.server.ts");
+  const graphqlConfig = await read(".graphqlrc.ts");
   assert.match(source, /apiVersion: ApiVersion\.April26/);
+  assert.match(graphqlConfig, /apiVersion: ApiVersion\.April26/);
   assert.match(source, /afterAuth/);
   assert.match(source, /shopSettings\.upsert/);
   assert.match(source, /create: \{ shop: session\.shop \}/);

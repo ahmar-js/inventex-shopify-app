@@ -56,6 +56,8 @@ model ShopSettings {
   enabled                  Boolean  @default(false)
   /// Classify continue-selling variants separately for collection sorting.
   sortContinueSellingAsOos Boolean  @default(false)
+  /// Automatically enable sorting when Shopify creates a collection.
+  autoSortNewCollections   Boolean  @default(true)
   createdAt                DateTime @default(now())
   updatedAt                DateTime @updatedAt
 }
@@ -183,13 +185,29 @@ model AlertQueue {
 /// Stores per-collection Auto Sorting toggle state chosen by the merchant.
 /// Absence of a row means Auto Sorting is disabled for that collection.
 model CollectionAutoSorting {
-  id           Int      @id @default(autoincrement())
-  shop         String
+  id                 Int       @id @default(autoincrement())
+  shop               String
   /// Full Shopify GID, e.g. gid://shopify/Collection/123456
-  collectionId String
+  collectionId       String
   /// true = automation manages this collection's sort order
-  enabled      Boolean  @default(true)
-  updatedAt    DateTime @updatedAt
+  enabled            Boolean   @default(true)
+  /// Shopify sort type that was active before Inventex switched to MANUAL.
+  originalSortOrder  String    @default("MANUAL")
+  /// Merchant-selected order used for the in-stock portion of the collection.
+  baseSortOrder      String    @default("MANUAL")
+  /// Exact product order captured when auto-sort was enabled.
+  originalProductIds Json      @default("[]")
+  /// Current canonical base order, independent from availability grouping.
+  baseProductIds     Json      @default("[]")
+  /// Original base index captured when a product first becomes sold out.
+  oosOriginalIndices Json      @default("{}")
+  productCount       Int       @default(0)
+  bulkOperationId    String?
+  disabledReason     String?
+  lastSortedAt       DateTime?
+  lastError          String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
   @@unique([shop, collectionId])
   @@index([shop])
