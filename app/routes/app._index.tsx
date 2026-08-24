@@ -23,6 +23,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     db.alertSettings.findUnique({ where: { shop } }),
     getBillingAccess({ admin, session, force: true }),
   ]);
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 
   const [
     sortingCount,
@@ -33,6 +34,12 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     sortingJobCount,
     hidingJobCount,
     deadLetterCount,
+    monitoredProductCount,
+    soldOutProductCount,
+    continueSellingCount,
+    sortedDownCount,
+    restoredThisWeekCount,
+    excludedProductCount,
   ] = await Promise.all([
     db.collectionAutoSorting.count({ where: { shop, enabled: true } }),
     db.inventoryState.count({
@@ -74,6 +81,25 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       },
     }),
     db.deadLetterJob.count({ where: { shop } }),
+    db.productAvailabilityState.count({ where: { shop, ignored: false } }),
+    db.productAvailabilityState.count({
+      where: { shop, status: "soldOut", ignored: false },
+    }),
+    db.productAvailabilityState.count({
+      where: { shop, status: "continueSelling", ignored: false },
+    }),
+    db.inventoryState.count({
+      where: {
+        shop,
+        action: "PUSHED_DOWN",
+        restored: false,
+        error: false,
+      },
+    }),
+    db.inventoryState.count({
+      where: { shop, restoredAt: { gte: sevenDaysAgo } },
+    }),
+    db.excludedProduct.count({ where: { shop } }),
   ]);
 
   return {
@@ -90,6 +116,15 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     alerts: {
       enabled: alertSettings?.lowStockEnabled ?? false,
       queuedCount: queuedAlertCount,
+    },
+    insights: {
+      monitoredProductCount,
+      soldOutProductCount,
+      continueSellingCount,
+      sortedDownCount,
+      restoredThisWeekCount,
+      excludedProductCount,
+      separateContinueSelling: settings?.sortContinueSellingAsOos ?? false,
     },
     errorCount,
     deadLetterCount,
@@ -280,6 +315,74 @@ export default function Dashboard() {
             />
           </s-grid>
         </s-section>
+
+        <s-section heading="Store insights">
+          <s-stack direction="block" gap="base">
+            <s-grid
+              gridTemplateColumns="repeat(auto-fit, minmax(170px, 1fr))"
+              gap="base"
+            >
+              <InsightCard
+                label="Sold-out detected"
+                value={data.insights.soldOutProductCount}
+                detail={`Across ${data.insights.monitoredProductCount} monitored product${data.insights.monitoredProductCount === 1 ? "" : "s"}`}
+                tone={
+                  data.insights.soldOutProductCount > 0 ? "warning" : "success"
+                }
+                href="/app/sort-collection"
+                linkLabel="Review sorting"
+              />
+              <InsightCard
+                label="Sorted down now"
+                value={data.insights.sortedDownCount}
+                detail="Currently kept below available products"
+                tone="info"
+                href="/app/sort-collection"
+                linkLabel="View collections"
+              />
+              <InsightCard
+                label="Restocked in 7 days"
+                value={data.insights.restoredThisWeekCount}
+                detail="Products automatically restored after restock"
+                tone="success"
+                href="/app/logs"
+                linkLabel="View activity"
+              />
+              <InsightCard
+                label="Ignored products"
+                value={data.insights.excludedProductCount}
+                detail="Protected from Inventex automation"
+                tone="neutral"
+                href="/app/hide"
+                linkLabel="Manage ignored products"
+              />
+            </s-grid>
+
+            <DashboardRecommendation
+              paused={paused}
+              errorCount={data.errorCount}
+              deadLetterCount={data.deadLetterCount}
+              monitoredProductCount={data.insights.monitoredProductCount}
+              soldOutProductCount={data.insights.soldOutProductCount}
+              sortingActiveCount={data.sorting.activeCount}
+              hidingEnabled={data.hiding.enabled}
+              alertsEnabled={data.alerts.enabled}
+            />
+
+            {data.insights.continueSellingCount > 0 ? (
+              <s-banner tone="info">
+                {data.insights.continueSellingCount} continue-selling product
+                {data.insights.continueSellingCount === 1
+                  ? " is"
+                  : "s are"}{" "}
+                currently detected. They are{" "}
+                {data.insights.separateContinueSelling
+                  ? "grouped after in-stock products and before sold-out products."
+                  : "treated as available and remain with in-stock products."}
+              </s-banner>
+            ) : null}
+          </s-stack>
+        </s-section>
       </s-stack>
 
       <s-section slot="aside" heading="Plan">
@@ -336,6 +439,113 @@ function FeatureCard(props: {
         <s-link href={props.href}>Manage {props.title.toLowerCase()}</s-link>
       </s-stack>
     </s-box>
+  );
+}
+
+function InsightCard(props: {
+  label: string;
+  value: number;
+  detail: string;
+  tone: "neutral" | "info" | "success" | "warning";
+  href: string;
+  linkLabel: string;
+}) {
+  return (
+    <s-box
+      padding="base"
+      borderWidth="base"
+      borderRadius="base"
+      minBlockSize="155px"
+    >
+      <s-stack direction="block" gap="small">
+        <s-stack direction="inline" alignItems="center" gap="small">
+          <s-heading>{props.value.toLocaleString()}</s-heading>
+          <s-badge tone={props.tone}>{props.label}</s-badge>
+        </s-stack>
+        <s-text color="subdued">{props.detail}</s-text>
+        <s-link href={props.href}>{props.linkLabel}</s-link>
+      </s-stack>
+    </s-box>
+  );
+}
+
+function DashboardRecommendation(props: {
+  paused: boolean;
+  errorCount: number;
+  deadLetterCount: number;
+  monitoredProductCount: number;
+  soldOutProductCount: number;
+  sortingActiveCount: number;
+  hidingEnabled: boolean;
+  alertsEnabled: boolean;
+}) {
+  if (props.errorCount > 0 || props.deadLetterCount > 0) {
+    return (
+      <s-banner tone="critical" heading="Automation needs attention">
+        Inventex found {props.errorCount + props.deadLetterCount} issue
+        {props.errorCount + props.deadLetterCount === 1 ? "" : "s"}. Review{" "}
+        <s-link href="/app/logs">Activity logs</s-link> before relying on the
+        affected automation.
+      </s-banner>
+    );
+  }
+
+  if (props.paused) {
+    return (
+      <s-banner tone="warning" heading="Automation is paused">
+        Choose a plan that covers your catalog to resume sorting, hiding, and
+        alerts. <s-link href="/app/billing">View plans</s-link>
+      </s-banner>
+    );
+  }
+
+  if (props.monitoredProductCount === 0) {
+    return (
+      <s-banner tone="info" heading="Build your inventory baseline">
+        Inventex has not evaluated any products yet. Enable sorting for a{" "}
+        <s-link href="/app/sort-collection">collection</s-link> or configure{" "}
+        <s-link href="/app/hide">product hiding</s-link> to begin monitoring.
+      </s-banner>
+    );
+  }
+
+  if (
+    props.soldOutProductCount > 0 &&
+    props.sortingActiveCount === 0 &&
+    !props.hidingEnabled
+  ) {
+    return (
+      <s-banner tone="warning" heading="Sold-out products need a rule">
+        {props.soldOutProductCount} sold-out product
+        {props.soldOutProductCount === 1 ? " is" : "s are"} detected, but
+        sorting and hiding are both off. Enable one automation to improve the
+        storefront experience.
+      </s-banner>
+    );
+  }
+
+  if (props.soldOutProductCount > 0 && !props.alertsEnabled) {
+    return (
+      <s-banner tone="info" heading="Stay ahead of stockouts">
+        Turn on <s-link href="/app/alerts">inventory alerts</s-link> to notify
+        your team when more products sell out or fall below a threshold.
+      </s-banner>
+    );
+  }
+
+  if (props.soldOutProductCount === 0) {
+    return (
+      <s-banner tone="success" heading="Monitored inventory looks healthy">
+        No sold-out products are currently detected across the products Inventex
+        has evaluated.
+      </s-banner>
+    );
+  }
+
+  return (
+    <s-banner tone="success" heading="Automations are covering stockouts">
+      Sold-out products are detected and your configured workflows are active.
+    </s-banner>
   );
 }
 
