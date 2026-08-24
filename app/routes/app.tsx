@@ -26,19 +26,19 @@ export default function App() {
     <AppProvider apiKey={apiKey}>
       <s-app-nav>
         <s-link href="/app">Dashboard</s-link>
-        <s-link href="/app/settings">Settings</s-link>
-        <s-link href="/app/hide">Hide Products</s-link>
         <s-link href="/app/sort-collection">Sort Collections</s-link>
+        <s-link href="/app/hide">Hide Products</s-link>
         <s-link href="/app/alerts">Alerts</s-link>
         <s-link href="/app/billing">Plans</s-link>
         <s-link href="/app/logs">Activity Logs</s-link>
+        <s-link href="/app/settings">Settings</s-link>
       </s-app-nav>
       {!billing.accessAllowed && (
-        <div style={{ margin: "16px" }}>
+        <s-box padding="base">
           <s-banner tone="warning">
             {billingMessage} <s-link href="/app/billing">View plans</s-link>
           </s-banner>
-        </div>
+        </s-box>
       )}
       <Outlet />
     </AppProvider>

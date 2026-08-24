@@ -62,10 +62,14 @@ export default function Billing() {
   const selectedPlan = navigation.formData?.get("plan");
 
   return (
-    <s-page heading="Plans and billing">
+    <s-page heading="Plans" inlineSize="large">
       <s-link slot="breadcrumb-actions" href="/app">
         Dashboard
       </s-link>
+
+      <s-paragraph>
+        Choose a plan based on your active and draft product count.
+      </s-paragraph>
 
       {access.developmentStore ? (
         <s-banner tone="success">
@@ -84,56 +88,71 @@ export default function Billing() {
         </s-banner>
       )}
 
-      {actionData?.error && <s-banner tone="critical">{actionData.error}</s-banner>}
+      {actionData?.error && (
+        <s-banner tone="critical">{actionData.error}</s-banner>
+      )}
 
-      <s-section heading="Choose a plan">
-        <s-paragraph>
-          Your store has {access.productCount.toLocaleString()} active and draft
-          products. Paid plans include a {trialDays}-day free trial.
-        </s-paragraph>
-        <s-stack direction="inline" gap="base">
-          {plans.map((plan) => {
-            const eligible = billingPlanCoversProducts(
-              plan.name,
-              access.productCount,
-            );
-            const current = access.subscribedPlan === plan.name;
-            const loading =
-              navigation.state !== "idle" && selectedPlan === plan.name;
-            return (
-              <s-box
-                key={plan.name}
-                padding="base"
-                borderWidth="base"
-                borderRadius="base"
-              >
-                <s-stack direction="block" gap="base">
-                  <s-heading>{plan.name.replace("Inventex ", "")}</s-heading>
-                  <s-heading>${plan.amount}/month</s-heading>
-                  <s-text color="subdued">
-                    {plan.maxProducts === null
-                      ? "Unlimited products"
-                      : `Up to ${plan.maxProducts.toLocaleString()} products`}
-                  </s-text>
-                  <Form method="post">
-                    <input type="hidden" name="plan" value={plan.name} />
-                    <s-button
-                      type="submit"
-                      variant={eligible && !current ? "primary" : "secondary"}
-                      disabled={!eligible || current || access.developmentStore}
-                      {...(loading ? { loading: true } : {})}
-                    >
-                      {current
-                        ? "Current plan"
-                        : eligible
-                          ? "Choose plan"
-                          : "Product limit exceeded"}
-                    </s-button>
-                  </Form>
-                </s-stack>
-              </s-box>
-            );
-          })}
+      <s-section heading="Available plans">
+        <s-stack direction="block" gap="base">
+          <s-paragraph>
+            Your store has {access.productCount.toLocaleString()} active and
+            draft products. Paid plans include a {trialDays}-day free trial.
+          </s-paragraph>
+          <s-grid
+            gridTemplateColumns="repeat(auto-fit, minmax(210px, 1fr))"
+            gap="base"
+          >
+            {plans.map((plan) => {
+              const eligible = billingPlanCoversProducts(
+                plan.name,
+                access.productCount,
+              );
+              const current = access.subscribedPlan === plan.name;
+              const loading =
+                navigation.state !== "idle" && selectedPlan === plan.name;
+              return (
+                <s-box
+                  key={plan.name}
+                  padding="base"
+                  borderWidth="base"
+                  borderRadius="base"
+                  minBlockSize="230px"
+                >
+                  <s-stack direction="block" gap="base">
+                    <s-stack direction="inline" gap="small" alignItems="center">
+                      <s-heading>
+                        {plan.name.replace("Inventex ", "")}
+                      </s-heading>
+                      {current && <s-badge tone="success">Current</s-badge>}
+                    </s-stack>
+                    <s-heading>${plan.amount}/month</s-heading>
+                    <s-text color="subdued">
+                      {plan.maxProducts === null
+                        ? "Unlimited products"
+                        : `Up to ${plan.maxProducts.toLocaleString()} products`}
+                    </s-text>
+                    <Form method="post">
+                      <input type="hidden" name="plan" value={plan.name} />
+                      <s-button
+                        type="submit"
+                        variant={eligible && !current ? "primary" : "secondary"}
+                        disabled={
+                          !eligible || current || access.developmentStore
+                        }
+                        {...(loading ? { loading: true } : {})}
+                      >
+                        {current
+                          ? "Current plan"
+                          : eligible
+                            ? "Choose plan"
+                            : "Product limit exceeded"}
+                      </s-button>
+                    </Form>
+                  </s-stack>
+                </s-box>
+              );
+            })}
+          </s-grid>
         </s-stack>
       </s-section>
     </s-page>

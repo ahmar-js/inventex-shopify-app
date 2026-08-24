@@ -145,10 +145,15 @@ export default function HideProducts() {
   const settingsBusy = data.locked || settingsFetcher.state !== "idle";
 
   return (
-    <s-page heading="Hide out-of-stock products">
+    <s-page heading="Hide products" inlineSize="base">
       <s-link slot="breadcrumb-actions" href="/app">
         Dashboard
       </s-link>
+
+      <s-paragraph>
+        Unpublish sold-out products from the Online Store and restore them
+        automatically after restock.
+      </s-paragraph>
 
       {data.locked && (
         <s-banner tone="info">
@@ -160,35 +165,31 @@ export default function HideProducts() {
       <settingsFetcher.Form method="post">
         <input type="hidden" name="_action" value="saveHideSettings" />
         <input type="hidden" name="hideEnabled" value={String(enabled)} />
-        <s-section heading="Online Store hiding">
+        <s-section heading="Online Store availability">
           <s-stack direction="block" gap="base">
-            <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <input
-                type="checkbox"
-                checked={enabled}
-                disabled={settingsBusy}
-                onChange={(event) => setEnabled(event.target.checked)}
-              />
-              <span style={{ fontWeight: 600 }}>
-                Hide sold-out products from Online Store
-              </span>
-            </label>
-            <label style={{ display: "grid", gap: 6, maxWidth: 280 }}>
-              <span>Delay before hiding (days)</span>
-              <input
-                name="hideDelayDays"
-                type="number"
-                min="0"
-                max="365"
-                step="1"
-                defaultValue={data.hideDelayDays}
-                disabled={settingsBusy}
-              />
-            </label>
-            <s-text color="subdued">
-              Restocked products cancel pending hides and are restored
-              automatically.
-            </s-text>
+            <s-checkbox
+              label="Hide sold-out products"
+              details="Only the Online Store publication is removed. Other sales channels remain unchanged."
+              checked={enabled}
+              disabled={settingsBusy}
+              onChange={(event) =>
+                setEnabled(
+                  (event.currentTarget as HTMLElement & { checked: boolean })
+                    .checked,
+                )
+              }
+            />
+            <s-number-field
+              label="Delay before hiding"
+              details="Restocked products cancel pending hides automatically."
+              suffix="days"
+              name="hideDelayDays"
+              min={0}
+              max={365}
+              step={1}
+              defaultValue={String(data.hideDelayDays)}
+              disabled={settingsBusy}
+            />
           </s-stack>
         </s-section>
 
@@ -199,11 +200,11 @@ export default function HideProducts() {
           disabled={settingsBusy}
           {...(settingsFetcher.state !== "idle" ? { loading: true } : {})}
         >
-          Save hide settings
+          Save settings
         </s-button>
       </settingsFetcher.Form>
 
-      <s-section heading="Ignored products">
+      <s-section heading={`Ignored products (${data.excludedProducts.length})`}>
         <s-stack direction="block" gap="base">
           <s-text color="subdued">
             Products selected here, or tagged inventex-ignore, are never hidden.
@@ -215,7 +216,12 @@ export default function HideProducts() {
             Add products
           </s-button>
           {data.excludedProducts.length === 0 ? (
-            <s-text color="subdued">No products are on the ignore list.</s-text>
+            <s-box padding="base" background="subdued" borderRadius="base">
+              <s-text color="subdued">
+                No ignored products. Add products that should always remain
+                available on the Online Store.
+              </s-text>
+            </s-box>
           ) : (
             <s-stack direction="block" gap="small">
               {data.excludedProducts.map((product) => (
@@ -225,7 +231,12 @@ export default function HideProducts() {
                   borderWidth="base"
                   borderRadius="base"
                 >
-                  <s-stack direction="inline" gap="base">
+                  <s-stack
+                    direction="inline"
+                    gap="base"
+                    alignItems="center"
+                    justifyContent="space-between"
+                  >
                     <s-text>{product.productTitle}</s-text>
                     <s-button
                       variant="tertiary"
@@ -252,7 +263,11 @@ export default function HideProducts() {
 
       <s-section heading={`App-hidden products (${data.hiddenCount})`}>
         {data.hiddenProducts.length === 0 ? (
-          <s-text color="subdued">Inventex has not hidden any products.</s-text>
+          <s-box padding="base" background="subdued" borderRadius="base">
+            <s-text color="subdued">
+              No products are currently hidden by Inventex.
+            </s-text>
+          </s-box>
         ) : (
           <s-stack direction="block" gap="small">
             {data.hiddenProducts.map((product) => (
@@ -266,6 +281,9 @@ export default function HideProducts() {
                   <s-text type="strong">
                     {product.productTitle || product.productId}
                   </s-text>
+                  <s-badge tone={product.error ? "critical" : "success"}>
+                    {product.error ? "Needs attention" : "Hidden"}
+                  </s-badge>
                   <s-text color="subdued">
                     Hidden {new Date(product.modifiedAt).toLocaleString()}
                     {product.redirectId ? " · Redirect active" : ""}

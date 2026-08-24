@@ -1,7 +1,7 @@
 import type { HeadersFunction, LoaderFunctionArgs } from "react-router";
-import { useLoaderData, Link } from "react-router";
-import { authenticate } from "../shopify.server";
+import { useLoaderData, useNavigate } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
+import { authenticate } from "../shopify.server";
 import db from "../db.server";
 
 const PER_PAGE = 25;
@@ -9,7 +9,6 @@ const PER_PAGE = 25;
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
   const shop = session.shop;
-
   const url = new URL(request.url);
   const page = Math.max(1, parseInt(url.searchParams.get("page") ?? "1", 10));
 
@@ -83,202 +82,217 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   };
 };
 
+function formatDate(value: string | null) {
+  if (!value) return "Not restored";
+  return new Intl.DateTimeFormat("en", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(value));
+}
+
 export default function Logs() {
   const { logs, page, totalPages, total, deadLetters, events, metrics } =
     useLoaderData<typeof loader>();
-
-  const prevHref = page > 1 ? `/app/logs?page=${page - 1}` : null;
+  const navigate = useNavigate();
+  const previousHref = page > 1 ? `/app/logs?page=${page - 1}` : null;
   const nextHref = page < totalPages ? `/app/logs?page=${page + 1}` : null;
 
   return (
-    <s-page heading="Activity Logs">
+    <s-page heading="Activity logs" inlineSize="large">
       <s-link slot="breadcrumb-actions" href="/app">
         Dashboard
       </s-link>
 
-      <s-section heading="Recent Activity">
+      <s-paragraph>
+        Review inventory actions and monitor background processing health.
+      </s-paragraph>
+
+      <s-section heading="Inventory activity" padding="none">
         {logs.length === 0 ? (
-          <s-box
-            padding="base"
-            borderWidth="base"
-            borderRadius="base"
-            background="subdued"
-          >
-            <s-text color="subdued">
-              No activity recorded yet. Logs will appear here once inventory
-              automation is active and processes its first event.
-            </s-text>
+          <s-box padding="large" background="subdued">
+            <s-stack direction="block" gap="small" alignItems="center">
+              <s-heading>No activity yet</s-heading>
+              <s-paragraph>
+                Inventory actions will appear after an automation processes a
+                product.
+              </s-paragraph>
+            </s-stack>
           </s-box>
         ) : (
-          <s-stack direction="block" gap="base">
-            <s-box borderWidth="base" borderRadius="base">
-              <table
-                style={{
-                  width: "100%",
-                  borderCollapse: "collapse",
-                  fontSize: "14px",
-                }}
-              >
-                <thead>
-                  <tr
-                    style={{
-                      borderBottom: "1px solid #e1e3e5",
-                      textAlign: "left",
-                    }}
-                  >
-                    <th style={{ padding: "12px" }}>Product ID</th>
-                    <th style={{ padding: "12px" }}>Action</th>
-                    <th style={{ padding: "12px" }}>Status</th>
-                    <th style={{ padding: "12px" }}>Modified</th>
-                    <th style={{ padding: "12px" }}>Restored</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {logs.map((log) => (
-                    <tr
-                      key={log.id}
-                      style={{
-                        borderBottom: "1px solid #f1f2f3",
-                        background: log.error ? "#fff4f4" : undefined,
-                      }}
-                    >
-                      <td style={{ padding: "12px" }}>
-                        <s-text>
-                          {log.productId.replace("gid://shopify/Product/", "#")}
-                        </s-text>
-                      </td>
-                      <td style={{ padding: "12px" }}>
-                        <s-text>
-                          {log.action === "HIDDEN" ? "Hidden" : "Pushed down"}
-                        </s-text>
-                      </td>
-                      <td style={{ padding: "12px" }}>
-                        {log.error ? (
-                          <s-stack direction="block" gap="small">
-                            <s-text tone="critical">Error</s-text>
-                            {log.errorMessage && (
-                              <s-text color="subdued">
-                                {log.errorMessage}
-                              </s-text>
-                            )}
-                          </s-stack>
-                        ) : (
-                          <s-text tone={log.restored ? "success" : "caution"}>
-                            {log.restored ? "Restored" : "Active"}
-                          </s-text>
-                        )}
-                      </td>
-                      <td style={{ padding: "12px" }}>
-                        <s-text color="subdued">
-                          {new Date(log.modifiedAt).toLocaleString()}
-                        </s-text>
-                      </td>
-                      <td style={{ padding: "12px" }}>
-                        <s-text color="subdued">
-                          {log.restoredAt
-                            ? new Date(log.restoredAt).toLocaleString()
-                            : "—"}
-                        </s-text>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </s-box>
+          <s-table
+            variant="auto"
+            paginate={totalPages > 1}
+            hasPreviousPage={page > 1}
+            hasNextPage={page < totalPages}
+            onPreviousPage={() =>
+              previousHref ? navigate(previousHref) : undefined
+            }
+            onNextPage={() => (nextHref ? navigate(nextHref) : undefined)}
+          >
+            <s-table-header-row>
+              <s-table-header listSlot="primary">Product</s-table-header>
+              <s-table-header listSlot="kicker">Action</s-table-header>
+              <s-table-header listSlot="inline">Status</s-table-header>
+              <s-table-header listSlot="secondary">Modified</s-table-header>
+              <s-table-header listSlot="labeled">Restored</s-table-header>
+            </s-table-header-row>
+            <s-table-body>
+              {logs.map((log) => (
+                <s-table-row key={log.id}>
+                  <s-table-cell>
+                    {log.productId.replace("gid://shopify/Product/", "#")}
+                  </s-table-cell>
+                  <s-table-cell>
+                    {log.action === "HIDDEN" ? "Hidden" : "Pushed down"}
+                  </s-table-cell>
+                  <s-table-cell>
+                    <s-stack direction="block" gap="small">
+                      <s-badge
+                        tone={
+                          log.error
+                            ? "critical"
+                            : log.restored
+                              ? "success"
+                              : "warning"
+                        }
+                      >
+                        {log.error
+                          ? "Error"
+                          : log.restored
+                            ? "Restored"
+                            : "Active"}
+                      </s-badge>
+                      {log.errorMessage ? (
+                        <s-text color="subdued">{log.errorMessage}</s-text>
+                      ) : null}
+                    </s-stack>
+                  </s-table-cell>
+                  <s-table-cell>{formatDate(log.modifiedAt)}</s-table-cell>
+                  <s-table-cell>{formatDate(log.restoredAt)}</s-table-cell>
+                </s-table-row>
+              ))}
+            </s-table-body>
+          </s-table>
+        )}
+        {logs.length > 0 ? (
+          <s-box padding="base">
+            <s-text color="subdued">
+              Page {page} of {totalPages} · {total} total entries
+            </s-text>
+          </s-box>
+        ) : null}
+      </s-section>
 
-            {/* ── Pagination controls ──────────────────────── */}
-            <s-stack direction="inline" gap="base">
-              {prevHref ? (
-                <Link to={prevHref}>
-                  <s-button variant="secondary">← Previous</s-button>
-                </Link>
-              ) : (
-                <s-button variant="secondary" disabled>
-                  ← Previous
-                </s-button>
-              )}
-
-              <s-text color="subdued">
-                Page {page} of {totalPages} ({total} total)
-              </s-text>
-
-              {nextHref ? (
-                <Link to={nextHref}>
-                  <s-button variant="secondary">Next →</s-button>
-                </Link>
-              ) : (
-                <s-button variant="secondary" disabled>
-                  Next →
-                </s-button>
-              )}
-            </s-stack>
-          </s-stack>
+      <s-section heading="Failed jobs" padding="none">
+        {deadLetters.length === 0 ? (
+          <s-box padding="base" background="subdued">
+            <s-paragraph>No jobs have exhausted their retries.</s-paragraph>
+          </s-box>
+        ) : (
+          <s-table variant="auto">
+            <s-table-header-row>
+              <s-table-header listSlot="primary">Job type</s-table-header>
+              <s-table-header listSlot="inline" format="numeric">
+                Attempts
+              </s-table-header>
+              <s-table-header listSlot="secondary">Failed</s-table-header>
+              <s-table-header listSlot="labeled">Last error</s-table-header>
+            </s-table-header-row>
+            <s-table-body>
+              {deadLetters.map((job) => (
+                <s-table-row key={job.id}>
+                  <s-table-cell>
+                    <s-stack direction="block" gap="small">
+                      <s-text type="strong">{job.type}</s-text>
+                      <s-text color="subdued">{job.jobId}</s-text>
+                    </s-stack>
+                  </s-table-cell>
+                  <s-table-cell>{job.attempts}</s-table-cell>
+                  <s-table-cell>{formatDate(job.failedAt)}</s-table-cell>
+                  <s-table-cell>
+                    <s-text tone="critical">
+                      {job.lastError ?? "No error message recorded"}
+                    </s-text>
+                  </s-table-cell>
+                </s-table-row>
+              ))}
+            </s-table-body>
+          </s-table>
         )}
       </s-section>
 
-      <s-section heading="Production Operations">
-        <s-stack direction="block" gap="base">
-          <s-heading>Dead-letter jobs</s-heading>
-          {deadLetters.length === 0 ? (
-            <s-text color="subdued">No jobs exhausted their retries.</s-text>
-          ) : (
-            deadLetters.map((job) => (
-              <s-box key={job.id} padding="base" borderWidth="base">
-                <s-stack direction="block" gap="small">
-                  <s-text type="strong">
-                    {job.type} · {job.attempts} attempts
-                  </s-text>
-                  <s-text tone="critical">{job.lastError}</s-text>
-                  <s-text color="subdued">
-                    {new Date(job.failedAt).toLocaleString()} · {job.jobId}
-                  </s-text>
-                </s-stack>
-              </s-box>
-            ))
-          )}
-
-          <s-heading>Recent operational errors</s-heading>
-          {events.length === 0 ? (
-            <s-text color="subdued">No operational errors recorded.</s-text>
-          ) : (
-            events.map((event) => (
-              <s-text key={event.id} tone="critical">
-                {event.source}: {event.message} ·{" "}
-                {new Date(event.createdAt).toLocaleString()}
-              </s-text>
-            ))
-          )}
-
-          <s-heading>Recent Shopify API metrics</s-heading>
-          {metrics.length === 0 ? (
-            <s-text color="subdued">No measured API calls yet.</s-text>
-          ) : (
-            metrics.map((metric) => (
-              <s-text key={metric.id} color="subdued">
-                {metric.operation} · {metric.outcome} · {metric.count} call
-                {metric.count === 1 ? "" : "s"} · avg {metric.averageDurationMs}{" "}
-                ms · max {metric.maxDurationMs} ms
-              </s-text>
-            ))
-          )}
-        </s-stack>
+      <s-section heading="Operational errors" padding="none">
+        {events.length === 0 ? (
+          <s-box padding="base" background="subdued">
+            <s-paragraph>No operational errors recorded.</s-paragraph>
+          </s-box>
+        ) : (
+          <s-table variant="auto">
+            <s-table-header-row>
+              <s-table-header listSlot="primary">Source</s-table-header>
+              <s-table-header listSlot="secondary">Time</s-table-header>
+              <s-table-header listSlot="labeled">Message</s-table-header>
+            </s-table-header-row>
+            <s-table-body>
+              {events.map((event) => (
+                <s-table-row key={event.id}>
+                  <s-table-cell>{event.source}</s-table-cell>
+                  <s-table-cell>{formatDate(event.createdAt)}</s-table-cell>
+                  <s-table-cell>
+                    <s-text tone="critical">{event.message}</s-text>
+                  </s-table-cell>
+                </s-table-row>
+              ))}
+            </s-table-body>
+          </s-table>
+        )}
       </s-section>
 
-      <s-section slot="aside" heading="About Logs">
-        <s-paragraph>
-          Each entry shows the product affected, the action taken by the app,
-          whether it has been restored, and the timestamps.
-        </s-paragraph>
-        <s-paragraph>
-          Rows highlighted in red indicate an error occurred. The error message
-          is shown below the status label.
-        </s-paragraph>
-        <s-paragraph>Showing {PER_PAGE} entries per page.</s-paragraph>
+      <s-section heading="Shopify API health" padding="none">
+        {metrics.length === 0 ? (
+          <s-box padding="base" background="subdued">
+            <s-paragraph>No measured API calls yet.</s-paragraph>
+          </s-box>
+        ) : (
+          <s-table variant="auto">
+            <s-table-header-row>
+              <s-table-header listSlot="primary">Operation</s-table-header>
+              <s-table-header listSlot="inline">Outcome</s-table-header>
+              <s-table-header listSlot="labeled" format="numeric">
+                Calls
+              </s-table-header>
+              <s-table-header listSlot="labeled" format="numeric">
+                Average
+              </s-table-header>
+              <s-table-header listSlot="secondary">Measured</s-table-header>
+            </s-table-header-row>
+            <s-table-body>
+              {metrics.map((metric) => (
+                <s-table-row key={metric.id}>
+                  <s-table-cell>{metric.operation}</s-table-cell>
+                  <s-table-cell>
+                    <s-badge
+                      tone={
+                        metric.outcome === "SUCCESS" ? "success" : "warning"
+                      }
+                    >
+                      {metric.outcome}
+                    </s-badge>
+                  </s-table-cell>
+                  <s-table-cell>{metric.count}</s-table-cell>
+                  <s-table-cell>
+                    {metric.averageDurationMs} ms (max {metric.maxDurationMs}{" "}
+                    ms)
+                  </s-table-cell>
+                  <s-table-cell>{formatDate(metric.bucketStart)}</s-table-cell>
+                </s-table-row>
+              ))}
+            </s-table-body>
+          </s-table>
+        )}
       </s-section>
     </s-page>
   );
 }
 
-export const headers: HeadersFunction = (headersArgs) => {
-  return boundary.headers(headersArgs);
-};
+export const headers: HeadersFunction = (args) => boundary.headers(args);

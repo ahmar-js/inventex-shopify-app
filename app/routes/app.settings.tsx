@@ -192,10 +192,14 @@ export default function Settings() {
 
   return (
     <Form method="post">
-      <s-page heading="Settings">
+      <s-page heading="Settings" inlineSize="base">
         <s-link slot="breadcrumb-actions" href="/app">
           Dashboard
         </s-link>
+
+        <s-paragraph>
+          Configure default behavior shared across Inventex automations.
+        </s-paragraph>
         <s-button
           slot="primary-action"
           type="submit"
@@ -233,71 +237,67 @@ export default function Settings() {
               name="autoSortNewCollections"
               value={String(autoSortNew)}
             />
-            <label
-              style={{ display: "flex", alignItems: "flex-start", gap: 8 }}
-            >
-              <input
-                type="checkbox"
-                checked={autoSortNew}
-                disabled={busy}
-                onChange={(event) => setAutoSortNew(event.target.checked)}
-              />
-              <span>
-                <strong>Auto-sort new collections</strong>
-                <br />
-                Automatically enable Inventex sorting for newly created
-                collections.
-              </span>
-            </label>
+            <s-checkbox
+              label="Auto-sort new collections"
+              details="Automatically enable Inventex sorting for newly created collections."
+              checked={autoSortNew}
+              disabled={busy}
+              onChange={(event) =>
+                setAutoSortNew(
+                  (event.currentTarget as HTMLElement & { checked: boolean })
+                    .checked,
+                )
+              }
+            />
 
             <input
               type="hidden"
               name="sortContinueSellingAsOos"
               value={String(separateContinue)}
             />
-            <label
-              style={{ display: "flex", alignItems: "flex-start", gap: 8 }}
-            >
-              <input
-                type="checkbox"
-                checked={separateContinue}
-                disabled={busy}
-                onChange={(event) => setSeparateContinue(event.target.checked)}
-              />
-              <span>
-                <strong>Separate continue-selling products</strong>
-                <br />
-                Sort them after in-stock products and before sold-out products.
-              </span>
-            </label>
+            <s-checkbox
+              label="Separate continue-selling products"
+              details="Sort them after in-stock products and before sold-out products."
+              checked={separateContinue}
+              disabled={busy}
+              onChange={(event) =>
+                setSeparateContinue(
+                  (event.currentTarget as HTMLElement & { checked: boolean })
+                    .checked,
+                )
+              }
+            />
           </s-stack>
         </s-section>
 
         <s-section heading="Hidden product redirects">
           <s-stack direction="block" gap="base">
-            <label style={{ display: "grid", gap: 6, maxWidth: 380 }}>
-              <span>Redirect behavior</span>
-              <select
-                name="redirectMode"
-                value={redirectMode}
-                disabled={busy}
-                onChange={(event) => setRedirectMode(event.target.value)}
-              >
-                <option value="none">None</option>
-                <option value="home">Home page</option>
-                <option value="custom">Custom same-store path</option>
-              </select>
-            </label>
+            <s-select
+              label="Redirect behavior"
+              details="Choose where storefront visitors go when they open a product hidden by Inventex."
+              name="redirectMode"
+              value={redirectMode}
+              disabled={busy}
+              onChange={(event) =>
+                setRedirectMode(
+                  (event.currentTarget as HTMLElement & { value: string })
+                    .value,
+                )
+              }
+            >
+              <s-option value="none">No redirect</s-option>
+              <s-option value="home">Home page</s-option>
+              <s-option value="custom">Custom same-store path</s-option>
+            </s-select>
             {redirectMode === "custom" ? (
-              <label style={{ display: "grid", gap: 6, maxWidth: 380 }}>
-                <span>Custom path</span>
-                <input
-                  name="redirectPath"
-                  defaultValue={data.redirectPath}
-                  placeholder="/collections/all"
-                  disabled={busy}
-                />
-              </label>
+              <s-text-field
+                label="Custom path"
+                details="Use a same-store path beginning with a slash."
+                name="redirectPath"
+                defaultValue={data.redirectPath}
+                placeholder="/collections/all"
+                disabled={busy}
+              />
             ) : (
               <input
                 type="hidden"
@@ -312,30 +312,26 @@ export default function Settings() {
           </s-stack>
         </s-section>
 
-        <s-section heading="Variant hiding (beta)">
+        <s-section heading="Variant hiding">
           <s-stack direction="block" gap="base">
+            <s-badge tone="info">Beta</s-badge>
             <input
               type="hidden"
               name="variantHideEnabled"
               value={String(variantHideEnabled)}
             />
-            <label style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
-              <input
-                type="checkbox"
-                checked={variantHideEnabled}
-                disabled={busy}
-                onChange={(event) =>
-                  setVariantHideEnabled(event.target.checked)
-                }
-              />
-              <span>
-                <strong>Hide sold-out variants</strong>
-                <br />
-                Unpublish only sold-out variants from the Online Store and
-                republish them on restock. Products with an available variant
-                stay published.
-              </span>
-            </label>
+            <s-checkbox
+              label="Hide sold-out variants"
+              details="Unpublish only sold-out variants from the Online Store. Products with an available variant stay published."
+              checked={variantHideEnabled}
+              disabled={busy}
+              onChange={(event) =>
+                setVariantHideEnabled(
+                  (event.currentTarget as HTMLElement & { checked: boolean })
+                    .checked,
+                )
+              }
+            />
             <s-text color="subdued">
               Available for catalogs with up to 500 published products.
               Currently hidden by Inventex: {data.hiddenVariantCount} variants.

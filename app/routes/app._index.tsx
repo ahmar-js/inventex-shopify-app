@@ -159,7 +159,7 @@ export default function Dashboard() {
   const paused = !data.billing.accessAllowed;
 
   return (
-    <s-page heading="Dashboard">
+    <s-page heading="Dashboard" inlineSize="base">
       <s-button
         slot="primary-action"
         variant="primary"
@@ -169,60 +169,74 @@ export default function Dashboard() {
         {...(isScanning ? { loading: true } : {})}
         disabled={!data.hiding.enabled || paused}
       >
-        Scan Now
+        Scan catalog
       </s-button>
 
+      <s-paragraph>
+        Monitor inventory automation and quickly reach the settings that need
+        attention.
+      </s-paragraph>
+
       {!data.onboardingCompleted && (
-        <s-section heading="Set up Inventex">
-          <s-paragraph>
-            Choose the first automation you want to configure. Sorting and
-            hiding remain independent, so you can enable both later.
-          </s-paragraph>
-          <s-stack direction="inline" gap="base">
-            <s-box padding="base" borderWidth="base" borderRadius="base">
-              <s-stack direction="block" gap="base">
-                <s-heading>Sort sold-out products last</s-heading>
-                <s-text color="subdued">
-                  Choose collections and preserve their in-stock order.
-                </s-text>
-                <Form method="post">
-                  <input
-                    type="hidden"
-                    name="_action"
-                    value="chooseOnboarding"
-                  />
-                  <input type="hidden" name="choice" value="SORT" />
-                  <s-button type="submit" variant="primary">
-                    Set up sorting
-                  </s-button>
-                </Form>
-              </s-stack>
-            </s-box>
-            <s-box padding="base" borderWidth="base" borderRadius="base">
-              <s-stack direction="block" gap="base">
-                <s-heading>Hide sold-out products</s-heading>
-                <s-text color="subdued">
-                  Unpublish sold-out products from Online Store only.
-                </s-text>
-                <Form method="post">
-                  <input
-                    type="hidden"
-                    name="_action"
-                    value="chooseOnboarding"
-                  />
-                  <input type="hidden" name="choice" value="HIDE" />
-                  <s-button type="submit" variant="primary">
-                    Set up hiding
-                  </s-button>
-                </Form>
-              </s-stack>
-            </s-box>
+        <s-section heading="Get started">
+          <s-stack direction="block" gap="base">
+            <s-paragraph>
+              Choose the first automation you want to configure. Sorting and
+              hiding remain independent, so you can enable both later.
+            </s-paragraph>
+            <s-grid
+              gridTemplateColumns="repeat(auto-fit, minmax(220px, 1fr))"
+              gap="base"
+            >
+              <s-box padding="base" borderWidth="base" borderRadius="base">
+                <s-stack direction="block" gap="base">
+                  <s-badge tone="info">Recommended first step</s-badge>
+                  <s-heading>Sort sold-out products last</s-heading>
+                  <s-text color="subdued">
+                    Choose collections and preserve their in-stock order.
+                  </s-text>
+                  <Form method="post">
+                    <input
+                      type="hidden"
+                      name="_action"
+                      value="chooseOnboarding"
+                    />
+                    <input type="hidden" name="choice" value="SORT" />
+                    <s-button type="submit" variant="primary">
+                      Set up sorting
+                    </s-button>
+                  </Form>
+                </s-stack>
+              </s-box>
+              <s-box padding="base" borderWidth="base" borderRadius="base">
+                <s-stack direction="block" gap="base">
+                  <s-heading>Hide sold-out products</s-heading>
+                  <s-text color="subdued">
+                    Unpublish sold-out products from Online Store only.
+                  </s-text>
+                  <Form method="post">
+                    <input
+                      type="hidden"
+                      name="_action"
+                      value="chooseOnboarding"
+                    />
+                    <input type="hidden" name="choice" value="HIDE" />
+                    <s-button type="submit" variant="primary">
+                      Set up hiding
+                    </s-button>
+                  </Form>
+                </s-stack>
+              </s-box>
+            </s-grid>
           </s-stack>
         </s-section>
       )}
 
-      <s-section heading="Automation">
-        <s-stack direction="inline" gap="base">
+      <s-section heading="Automation overview">
+        <s-grid
+          gridTemplateColumns="repeat(auto-fit, minmax(190px, 1fr))"
+          gap="base"
+        >
           <FeatureCard
             title="Sorting"
             status={
@@ -263,7 +277,7 @@ export default function Dashboard() {
             detail={`${data.alerts.queuedCount} digest alert${data.alerts.queuedCount === 1 ? "" : "s"} queued`}
             href="/app/alerts"
           />
-        </s-stack>
+        </s-grid>
       </s-section>
 
       <s-section slot="aside" heading="Plan">
@@ -307,15 +321,27 @@ function FeatureCard(props: {
   href: string;
 }) {
   return (
-    <s-box padding="base" borderWidth="base" borderRadius="base">
+    <s-box
+      padding="base"
+      borderWidth="base"
+      borderRadius="base"
+      minBlockSize="160px"
+    >
       <s-stack direction="block" gap="small">
         <s-heading>{props.title}</s-heading>
-        <s-text type="strong">{props.status}</s-text>
+        <s-badge tone={statusTone(props.status)}>{props.status}</s-badge>
         <s-text color="subdued">{props.detail}</s-text>
-        <s-link href={props.href}>Manage</s-link>
+        <s-link href={props.href}>Manage {props.title.toLowerCase()}</s-link>
       </s-stack>
     </s-box>
   );
+}
+
+function statusTone(status: string) {
+  if (status === "On") return "success" as const;
+  if (status === "Working") return "info" as const;
+  if (status === "Paused") return "warning" as const;
+  return "neutral" as const;
 }
 
 export const headers: HeadersFunction = (headersArgs) =>
