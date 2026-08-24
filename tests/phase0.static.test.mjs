@@ -15,6 +15,9 @@ test("Shopify config has the Phase 0 subscriptions, scopes, and API version", as
     'topics = [ "collections/update" ]',
     'topics = [ "collections/delete" ]',
     'compliance_topics = [ "customers/data_request", "customers/redact", "shop/redact" ]',
+    "read_inventory",
+    "read_publications",
+    "write_publications",
     "read_locations",
     "write_online_store_navigation",
   ]) {
