@@ -354,9 +354,40 @@ Copy `.env.example` to `.env` for local development and supply these through the
 | `CRON_SECRET` | Required, secret | Bearer token protecting the job and alert cron endpoints. Production fails closed without it. |
 | `SUPPORT_EMAIL` | Required | Merchant-facing support contact. |
 | `RESEND_API_KEY` | Required, secret | Authenticates email delivery through Resend. The production process fails closed if it is absent. |
-| `ALERT_FROM_EMAIL` | Required | Verified From address used for alert email. The production process fails closed if it is absent. |
+| `ALERT_FROM_EMAIL` | Required | Verified From address used for alert email. Development defaults to `Inventex <onboarding@resend.dev>` when blank; production fails closed. |
 
 Never commit real secret values. Generate `CRON_SECRET` as a long random value independent of the Shopify secret.
+
+### Resend email setup and test
+
+For local development, add the API key to `.env`. The sender can remain blank while using Resend's onboarding domain:
+
+```dotenv
+RESEND_API_KEY="re_your_resend_api_key"
+ALERT_FROM_EMAIL=""
+```
+
+Development email is sent from `Inventex <onboarding@resend.dev>`. For production, verify your sending domain in Resend and configure a friendly sender:
+
+```dotenv
+RESEND_API_KEY="re_your_production_api_key"
+ALERT_FROM_EMAIL="Inventex <alerts@your-domain.example>"
+```
+
+All application email goes through the server-only `sendEmail` helper. It accepts HTML, plain text, or both:
+
+```ts
+import { sendEmail } from "./app/services/email.server";
+
+await sendEmail({
+  to: "merchant@example.com",
+  subject: "Inventex email test",
+  html: "<p>Your Inventex email integration is working.</p>",
+  text: "Your Inventex email integration is working.",
+});
+```
+
+To test through the app, enable Alerts, save a recipient, and select **Send preview**. Delivery errors are returned to the preview screen and written to structured logs without API keys or recipient addresses.
 
 ### Local setup
 

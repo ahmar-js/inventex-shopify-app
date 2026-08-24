@@ -12,7 +12,7 @@
  */
 
 import db from "../db.server";
-import { sendAlertEmail } from "./email.server";
+import { sendAlertEmail, sendDigestEmail } from "./email.server";
 import type { AlertEmailPayload } from "./email.server";
 import type { ProductAvailabilityResult } from "./availability.server";
 import type { AvailabilityStatus } from "./availability";
@@ -322,7 +322,6 @@ export async function flushAlertQueue(
       : `Inventex Daily Stock Digest — ${items.length} alert${items.length !== 1 ? "s" : ""}`;
 
     try {
-      const { sendDigestEmail } = await import("./email.server");
       await sendDigestEmail({ to: emails, shop, subject, items: digestItems });
 
       const itemIds = items.map(({ id }) => id);

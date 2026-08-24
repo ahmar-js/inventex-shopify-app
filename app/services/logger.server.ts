@@ -25,6 +25,8 @@ export interface LogContext {
   processed?: number;
   failed?: number;
   deferred?: number;
+  emailId?: string;
+  recipientCount?: number;
   error?: unknown;
 }
 

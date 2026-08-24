@@ -1,48 +1,57 @@
 /**
- * Email service — thin wrapper around Resend.
+ * Server-only transactional email service backed by Resend.
  *
- * Required env vars:
- *   RESEND_API_KEY   — your Resend secret key
- *   ALERT_FROM_EMAIL — verified sender, e.g. "alerts@yourdomain.com"
- *
- * Missing configuration throws before a delivery is recorded. This prevents
- * production from treating a skipped email as successfully sent.
+ * RESEND_API_KEY is always required to deliver email. ALERT_FROM_EMAIL is
+ * required in production; development falls back to Resend's onboarding
+ * sender so a developer can test without a verified domain.
  */
 
-import { Resend } from "resend";
+import { Resend, type CreateEmailOptions } from "resend";
+import { logger } from "./logger.server";
 
-// ─── Lazy singleton ──────────────────────────────────────────
+export const DEVELOPMENT_EMAIL_SENDER =
+  "Inventex <onboarding@resend.dev>";
 
-let _resend: Resend | null = null;
+let resendClient: Resend | null = null;
+let resendApiKey: string | null = null;
 
-function getTransport() {
-  const apiKey = requiredEmailEnvironment("RESEND_API_KEY");
-  const from = requiredEmailEnvironment("ALERT_FROM_EMAIL");
-  if (!_resend) {
-    _resend = new Resend(apiKey);
+export interface TransactionalEmailPayload {
+  to: string | string[];
+  subject: string;
+  html?: string;
+  text?: string;
+  /** Optional shop context included in structured logs. */
+  shop?: string;
+}
+
+export interface TransactionalEmailResult {
+  id: string;
+}
+
+export class EmailDeliveryError extends Error {
+  constructor(message: string, cause?: unknown) {
+    super(message, { cause });
+    this.name = "EmailDeliveryError";
   }
-  return { client: _resend, from };
 }
 
-function requiredEmailEnvironment(name: "RESEND_API_KEY" | "ALERT_FROM_EMAIL") {
-  const value = process.env[name]?.trim();
-  if (!value) throw new Error(`${name} is required to send Inventex alerts`);
-  return value;
+export class EmailConfigurationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "EmailConfigurationError";
+  }
 }
-
-// ─── Types ──────────────────────────────────────────────────
 
 export interface AlertEmailPayload {
   to: string[];
   shop: string;
   subject: string;
   productTitle: string;
-  /** Variant title — empty string when checking at the product level */
+  /** Variant title; empty when checking at product level. */
   variantTitle: string;
   alertType: "LOW_STOCK" | "OUT_OF_STOCK";
   quantity: number;
   threshold: number;
-  /** Direct admin link to the product */
   productAdminUrl: string;
 }
 
@@ -60,156 +69,235 @@ export interface DigestEmailPayload {
   }>;
 }
 
-// ─── Send single alert email ─────────────────────────────────
+export function resolveEmailSender() {
+  const configured = process.env.ALERT_FROM_EMAIL?.trim();
+  if (configured) return configured;
+  if (process.env.NODE_ENV !== "production") return DEVELOPMENT_EMAIL_SENDER;
+  throw new EmailConfigurationError(
+    "ALERT_FROM_EMAIL is required to send Inventex email in production",
+  );
+}
+
+/**
+ * Reusable delivery helper for all Inventex transactional email.
+ * Supports HTML, plain text, or both without exposing Resend to callers.
+ */
+export async function sendEmail(
+  payload: TransactionalEmailPayload,
+): Promise<TransactionalEmailResult> {
+  const recipients = Array.isArray(payload.to) ? payload.to : [payload.to];
+  if (recipients.length === 0 || recipients.some((item) => !item.trim())) {
+    throw new Error("At least one email recipient is required");
+  }
+  if (!payload.subject.trim()) throw new Error("Email subject is required");
+
+  const html = payload.html?.trim() ? payload.html : undefined;
+  const plainText = payload.text?.trim() ? payload.text : undefined;
+  if (!html && !plainText) {
+    throw new Error("Email HTML or plain-text content is required");
+  }
+
+  const content = html
+    ? plainText
+      ? { html, text: plainText }
+      : { html }
+    : { text: plainText! };
+  try {
+    const apiKey = requiredApiKey();
+    const from = resolveEmailSender();
+    const client = getResendClient(apiKey);
+    const message: CreateEmailOptions = {
+      from,
+      to: payload.to,
+      subject: payload.subject,
+      ...content,
+    };
+    const { data, error } = await client.emails.send(message);
+    if (error) throw new EmailDeliveryError(error.message, error);
+    if (!data?.id) {
+      throw new EmailDeliveryError("Resend returned no email ID");
+    }
+
+    logger.info("Transactional email sent", {
+      shop: payload.shop,
+      emailId: data.id,
+      recipientCount: recipients.length,
+    });
+    return { id: data.id };
+  } catch (error) {
+    logger.error("Transactional email delivery failed", {
+      shop: payload.shop,
+      recipientCount: recipients.length,
+      error,
+    });
+    if (
+      error instanceof EmailDeliveryError ||
+      error instanceof EmailConfigurationError
+    ) {
+      throw error;
+    }
+    throw new EmailDeliveryError("Email delivery failed", error);
+  }
+}
 
 export async function sendAlertEmail(
   payload: AlertEmailPayload,
 ): Promise<void> {
-  const { client, from } = getTransport();
-
-  const { error } = await client.emails.send({
-    from,
+  await sendEmail({
     to: payload.to,
+    shop: payload.shop,
     subject: payload.subject,
     html: buildSingleAlertHtml(payload),
+    text: buildSingleAlertText(payload),
   });
-
-  if (error) {
-    console.error("[email] Failed to send alert email:", error);
-    throw new Error(`Email send failed: ${error.message}`);
-  }
-
-  console.log(
-    `[email] Sent ${payload.alertType} alert for "${payload.productTitle}" to ${payload.to.join(", ")}`,
-  );
 }
-
-// ─── Send digest (daily / weekly) ───────────────────────────
 
 export async function sendDigestEmail(
   payload: DigestEmailPayload,
 ): Promise<void> {
-  const { client, from } = getTransport();
-
-  const { error } = await client.emails.send({
-    from,
+  await sendEmail({
     to: payload.to,
+    shop: payload.shop,
     subject: payload.subject,
     html: buildDigestHtml(payload),
+    text: buildDigestText(payload),
   });
-
-  if (error) {
-    console.error("[email] Failed to send digest email:", error);
-    throw new Error(`Digest email send failed: ${error.message}`);
-  }
-
-  console.log(
-    `[email] Sent digest (${payload.items.length} item(s)) for ${payload.shop} to ${payload.to.join(", ")}`,
-  );
 }
 
-// ─── HTML builders ──────────────────────────────────────────
+function requiredApiKey() {
+  const value = process.env.RESEND_API_KEY?.trim();
+  if (!value) {
+    throw new EmailConfigurationError(
+      "RESEND_API_KEY is required to send Inventex email",
+    );
+  }
+  return value;
+}
+
+function getResendClient(apiKey: string) {
+  if (!resendClient || resendApiKey !== apiKey) {
+    resendClient = new Resend(apiKey);
+    resendApiKey = apiKey;
+  }
+  return resendClient;
+}
 
 const CSS = `
-  body { margin:0; padding:0; background:#f4f6f8; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
-  .wrap { max-width:600px; margin:32px auto; background:#fff; border-radius:12px; overflow:hidden; box-shadow:0 2px 12px rgba(0,0,0,0.08); }
+  body { margin:0; padding:0; background:#f4f6f8; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; }
+  .wrap { max-width:600px; margin:32px auto; background:#fff; border-radius:12px; overflow:hidden; box-shadow:0 2px 12px rgba(0,0,0,.08); }
   .header { background:#1a1c1e; padding:24px 32px; }
   .header h1 { margin:0; color:#fff; font-size:20px; font-weight:600; }
   .header p { margin:4px 0 0; color:#adb5bd; font-size:13px; }
   .body { padding:32px; }
-  .badge { display:inline-block; border-radius:20px; padding:4px 12px; font-size:12px; font-weight:600; letter-spacing:0.4px; margin-bottom:20px; }
-  .badge-low  { background:#fff3cd; color:#856404; }
-  .badge-out  { background:#f8d7da; color:#842029; }
+  .badge { display:inline-block; border-radius:20px; padding:4px 12px; font-size:12px; font-weight:600; letter-spacing:.4px; margin-bottom:20px; }
+  .badge-low { background:#fff3cd; color:#856404; }
+  .badge-out { background:#f8d7da; color:#842029; }
   .product-card { background:#f8f9fa; border-radius:8px; padding:20px; margin-bottom:24px; border-left:4px solid #458fff; }
   .product-title { font-size:18px; font-weight:600; color:#1a1c1e; margin:0 0 4px; }
   .variant-title { font-size:14px; color:#6d7175; margin:0 0 16px; }
   .qty { font-size:32px; font-weight:700; color:#1a1c1e; }
-  .qty-label { font-size:13px; color:#6d7175; margin-top:2px; }
-  .threshold-note { font-size:13px; color:#6d7175; margin-top:4px; }
-  .btn { display:inline-block; background:#458fff; color:#fff !important; text-decoration:none; padding:12px 24px; border-radius:8px; font-weight:600; font-size:14px; margin-top:8px; }
+  .qty-label,.threshold-note { font-size:13px; color:#6d7175; }
+  .btn { display:inline-block; background:#458fff; color:#fff!important; text-decoration:none; padding:12px 24px; border-radius:8px; font-weight:600; font-size:14px; margin-top:8px; }
   .footer { background:#f8f9fa; padding:20px 32px; text-align:center; font-size:12px; color:#8c9196; }
   table.items { width:100%; border-collapse:collapse; margin-bottom:24px; }
   table.items th { background:#f8f9fa; padding:10px 12px; text-align:left; font-size:12px; color:#6d7175; border-bottom:1px solid #e1e3e5; }
   table.items td { padding:12px; font-size:14px; color:#1a1c1e; border-bottom:1px solid #f1f1f1; vertical-align:top; }
 `;
 
-function buildSingleAlertHtml(p: AlertEmailPayload): string {
-  const isOut = p.alertType === "OUT_OF_STOCK";
-  const badgeClass = isOut ? "badge-out" : "badge-low";
-  const badgeText = isOut ? "OUT OF STOCK" : "LOW STOCK";
-  const variantLine = p.variantTitle
-    ? `<p class="variant-title">Variant: ${esc(p.variantTitle)}</p>`
+function buildSingleAlertHtml(payload: AlertEmailPayload) {
+  const outOfStock = payload.alertType === "OUT_OF_STOCK";
+  const variant = payload.variantTitle
+    ? `<p class="variant-title">Variant: ${escapeHtml(payload.variantTitle)}</p>`
     : "";
-  const thresholdNote = !isOut
-    ? `<p class="threshold-note">Your threshold is set to ≤ ${p.threshold} units.</p>`
-    : "";
+  const threshold = outOfStock
+    ? ""
+    : `<p class="threshold-note">Your threshold is set to &le; ${payload.threshold} units.</p>`;
 
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"><style>${CSS}</style></head><body>
+  return `<!doctype html><html><head><meta charset="utf-8"><style>${CSS}</style></head><body>
 <div class="wrap">
-  <div class="header">
-    <h1>Inventex &mdash; Stock Alert</h1>
-    <p>${esc(p.shop)}</p>
-  </div>
+  <div class="header"><h1>Inventex &mdash; Stock Alert</h1><p>${escapeHtml(payload.shop)}</p></div>
   <div class="body">
-    <span class="badge ${badgeClass}">${badgeText}</span>
+    <span class="badge ${outOfStock ? "badge-out" : "badge-low"}">${outOfStock ? "OUT OF STOCK" : "LOW STOCK"}</span>
     <div class="product-card">
-      <p class="product-title">${esc(p.productTitle)}</p>
-      ${variantLine}
-      <div class="qty">${p.quantity}</div>
-      <div class="qty-label">units remaining</div>
-      ${thresholdNote}
+      <p class="product-title">${escapeHtml(payload.productTitle)}</p>${variant}
+      <div class="qty">${payload.quantity}</div><div class="qty-label">units remaining</div>${threshold}
     </div>
-    <a class="btn" href="${esc(p.productAdminUrl)}">View product in Shopify</a>
+    <a class="btn" href="${escapeHtml(payload.productAdminUrl)}">View product in Shopify</a>
   </div>
   <div class="footer">You&rsquo;re receiving this because you enabled stock alerts in Inventex.</div>
-</div>
-</body></html>`;
+</div></body></html>`;
 }
 
-function buildDigestHtml(p: DigestEmailPayload): string {
-  const rows = p.items
+function buildSingleAlertText(payload: AlertEmailPayload) {
+  const lines = [
+    "Inventex stock alert",
+    `Store: ${payload.shop}`,
+    `Status: ${payload.alertType === "OUT_OF_STOCK" ? "Out of stock" : "Low stock"}`,
+    `Product: ${payload.productTitle}`,
+  ];
+  if (payload.variantTitle) lines.push(`Variant: ${payload.variantTitle}`);
+  lines.push(`Quantity: ${payload.quantity}`);
+  if (payload.alertType === "LOW_STOCK") {
+    lines.push(`Low-stock threshold: ${payload.threshold}`);
+  }
+  lines.push(`View in Shopify: ${payload.productAdminUrl}`);
+  return lines.join("\n");
+}
+
+function buildDigestHtml(payload: DigestEmailPayload) {
+  const rows = payload.items
     .map((item) => {
-      const isOut = item.alertType === "OUT_OF_STOCK";
-      const badge = isOut
-        ? `<span style="color:#842029;font-weight:600">Out of stock</span>`
-        : `<span style="color:#856404;font-weight:600">Low stock</span>`;
+      const outOfStock = item.alertType === "OUT_OF_STOCK";
       const variant = item.variantTitle
-        ? ` <span style="color:#6d7175;font-size:12px">(${esc(item.variantTitle)})</span>`
+        ? ` <span style="color:#6d7175;font-size:12px">(${escapeHtml(item.variantTitle)})</span>`
         : "";
       return `<tr>
-      <td>${esc(item.productTitle)}${variant}</td>
-      <td>${badge}</td>
-      <td style="text-align:right">${item.quantity}</td>
-      <td><a href="${esc(item.productAdminUrl)}" style="color:#458fff">View</a></td>
-    </tr>`;
+        <td>${escapeHtml(item.productTitle)}${variant}</td>
+        <td><span style="color:${outOfStock ? "#842029" : "#856404"};font-weight:600">${outOfStock ? "Out of stock" : "Low stock"}</span></td>
+        <td style="text-align:right">${item.quantity}</td>
+        <td><a href="${escapeHtml(item.productAdminUrl)}" style="color:#458fff">View</a></td>
+      </tr>`;
     })
     .join("");
 
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"><style>${CSS}</style></head><body>
+  return `<!doctype html><html><head><meta charset="utf-8"><style>${CSS}</style></head><body>
 <div class="wrap">
-  <div class="header">
-    <h1>Inventex &mdash; Stock Digest</h1>
-    <p>${esc(p.shop)}</p>
-  </div>
+  <div class="header"><h1>Inventex &mdash; Stock Digest</h1><p>${escapeHtml(payload.shop)}</p></div>
   <div class="body">
-    <p style="color:#1a1c1e;margin-top:0">Here&rsquo;s a summary of ${p.items.length} stock alert${p.items.length !== 1 ? "s" : ""} since your last digest.</p>
-    <table class="items">
-      <thead><tr>
-        <th>Product</th><th>Alert</th><th style="text-align:right">Qty</th><th>Link</th>
-      </tr></thead>
-      <tbody>${rows}</tbody>
-    </table>
+    <p style="color:#1a1c1e;margin-top:0">Here&rsquo;s a summary of ${payload.items.length} stock alert${payload.items.length === 1 ? "" : "s"} since your last digest.</p>
+    <table class="items"><thead><tr><th>Product</th><th>Alert</th><th style="text-align:right">Qty</th><th>Link</th></tr></thead><tbody>${rows}</tbody></table>
   </div>
   <div class="footer">You&rsquo;re receiving this because you enabled stock alerts in Inventex.</div>
-</div>
-</body></html>`;
+</div></body></html>`;
 }
 
-// ─── Helpers ─────────────────────────────────────────────────
+function buildDigestText(payload: DigestEmailPayload) {
+  const items = payload.items.map((item, index) => {
+    const title = item.variantTitle
+      ? `${item.productTitle} (${item.variantTitle})`
+      : item.productTitle;
+    return [
+      `${index + 1}. ${title}`,
+      `Status: ${item.alertType === "OUT_OF_STOCK" ? "Out of stock" : "Low stock"}`,
+      `Quantity: ${item.quantity}`,
+      item.alertType === "LOW_STOCK"
+        ? `Low-stock threshold: ${item.threshold}`
+        : null,
+      `View in Shopify: ${item.productAdminUrl}`,
+    ]
+      .filter(Boolean)
+      .join("\n");
+  });
+  return [
+    "Inventex stock digest",
+    `Store: ${payload.shop}`,
+    "",
+    ...items.flatMap((item) => [item, ""]),
+  ].join("\n").trim();
+}
 
-/** Escape HTML entities to prevent injection into email HTML. */
-function esc(str: string): string {
-  return str
+function escapeHtml(value: string) {
+  return value
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
