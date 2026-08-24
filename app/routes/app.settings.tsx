@@ -197,9 +197,6 @@ export default function Settings() {
           Dashboard
         </s-link>
 
-        <s-paragraph>
-          Configure default behavior shared across Inventex automations.
-        </s-paragraph>
         <s-button
           slot="primary-action"
           type="submit"
@@ -210,134 +207,141 @@ export default function Settings() {
           Save
         </s-button>
 
-        {data.hideSettingsLocked && (
-          <s-banner tone="info">
-            Redirect settings are locked until the current catalog hide job
-            finishes.
-          </s-banner>
-        )}
-        {data.variantHideSettingsLocked && (
-          <s-banner tone="info">
-            Variant hide settings are locked while the catalog job finishes.
-          </s-banner>
-        )}
-        {data.variantHideEnabled &&
-          data.variantHideCatalogCount !== null &&
-          !data.variantHideEligible && (
-            <s-banner tone="warning">
-              Variant hiding is paused because the Online Store has more than
-              500 published products.
+        <s-stack direction="block" gap="large">
+          <s-paragraph>
+            Configure default behavior shared across Inventex automations.
+          </s-paragraph>
+
+          {data.hideSettingsLocked && (
+            <s-banner tone="info">
+              Redirect settings are locked until the current catalog hide job
+              finishes.
             </s-banner>
           )}
+          {data.variantHideSettingsLocked && (
+            <s-banner tone="info">
+              Variant hide settings are locked while the catalog job finishes.
+            </s-banner>
+          )}
+          {data.variantHideEnabled &&
+            data.variantHideCatalogCount !== null &&
+            !data.variantHideEligible && (
+              <s-banner tone="warning">
+                Variant hiding is paused because the Online Store has more than
+                500 published products.
+              </s-banner>
+            )}
 
-        <s-section heading="Collection sorting">
-          <s-stack direction="block" gap="base">
-            <input
-              type="hidden"
-              name="autoSortNewCollections"
-              value={String(autoSortNew)}
-            />
-            <s-checkbox
-              label="Auto-sort new collections"
-              details="Automatically enable Inventex sorting for newly created collections."
-              checked={autoSortNew}
-              disabled={busy}
-              onChange={(event) =>
-                setAutoSortNew(
-                  (event.currentTarget as HTMLElement & { checked: boolean })
-                    .checked,
-                )
-              }
-            />
-
-            <input
-              type="hidden"
-              name="sortContinueSellingAsOos"
-              value={String(separateContinue)}
-            />
-            <s-checkbox
-              label="Separate continue-selling products"
-              details="Sort them after in-stock products and before sold-out products."
-              checked={separateContinue}
-              disabled={busy}
-              onChange={(event) =>
-                setSeparateContinue(
-                  (event.currentTarget as HTMLElement & { checked: boolean })
-                    .checked,
-                )
-              }
-            />
-          </s-stack>
-        </s-section>
-
-        <s-section heading="Hidden product redirects">
-          <s-stack direction="block" gap="base">
-            <s-select
-              label="Redirect behavior"
-              details="Choose where storefront visitors go when they open a product hidden by Inventex."
-              name="redirectMode"
-              value={redirectMode}
-              disabled={busy}
-              onChange={(event) =>
-                setRedirectMode(
-                  (event.currentTarget as HTMLElement & { value: string })
-                    .value,
-                )
-              }
-            >
-              <s-option value="none">No redirect</s-option>
-              <s-option value="home">Home page</s-option>
-              <s-option value="custom">Custom same-store path</s-option>
-            </s-select>
-            {redirectMode === "custom" ? (
-              <s-text-field
-                label="Custom path"
-                details="Use a same-store path beginning with a slash."
-                name="redirectPath"
-                defaultValue={data.redirectPath}
-                placeholder="/collections/all"
-                disabled={busy}
-              />
-            ) : (
+          <s-section heading="Collection sorting">
+            <s-stack direction="block" gap="base">
               <input
                 type="hidden"
-                name="redirectPath"
-                value={data.redirectPath}
+                name="autoSortNewCollections"
+                value={String(autoSortNew)}
               />
-            )}
-            <s-text color="subdued">
-              Redirects are created only for products hidden by Inventex and
-              deleted when those products are restored.
-            </s-text>
-          </s-stack>
-        </s-section>
+              <s-checkbox
+                label="Auto-sort new collections"
+                details="Automatically enable Inventex sorting for newly created collections."
+                checked={autoSortNew}
+                disabled={busy}
+                onChange={(event) =>
+                  setAutoSortNew(
+                    (event.currentTarget as HTMLElement & { checked: boolean })
+                      .checked,
+                  )
+                }
+              />
 
-        <s-section heading="Variant hiding">
-          <s-stack direction="block" gap="base">
-            <s-badge tone="info">Beta</s-badge>
-            <input
-              type="hidden"
-              name="variantHideEnabled"
-              value={String(variantHideEnabled)}
-            />
-            <s-checkbox
-              label="Hide sold-out variants"
-              details="Unpublish only sold-out variants from the Online Store. Products with an available variant stay published."
-              checked={variantHideEnabled}
-              disabled={busy}
-              onChange={(event) =>
-                setVariantHideEnabled(
-                  (event.currentTarget as HTMLElement & { checked: boolean })
-                    .checked,
-                )
-              }
-            />
-            <s-text color="subdued">
-              Available for catalogs with up to 500 published products.
-              Currently hidden by Inventex: {data.hiddenVariantCount} variants.
-            </s-text>
-          </s-stack>
-        </s-section>
+              <input
+                type="hidden"
+                name="sortContinueSellingAsOos"
+                value={String(separateContinue)}
+              />
+              <s-checkbox
+                label="Separate continue-selling products"
+                details="Sort them after in-stock products and before sold-out products."
+                checked={separateContinue}
+                disabled={busy}
+                onChange={(event) =>
+                  setSeparateContinue(
+                    (event.currentTarget as HTMLElement & { checked: boolean })
+                      .checked,
+                  )
+                }
+              />
+            </s-stack>
+          </s-section>
+
+          <s-section heading="Hidden product redirects">
+            <s-stack direction="block" gap="base">
+              <s-select
+                label="Redirect behavior"
+                details="Choose where storefront visitors go when they open a product hidden by Inventex."
+                name="redirectMode"
+                value={redirectMode}
+                disabled={busy}
+                onChange={(event) =>
+                  setRedirectMode(
+                    (event.currentTarget as HTMLElement & { value: string })
+                      .value,
+                  )
+                }
+              >
+                <s-option value="none">No redirect</s-option>
+                <s-option value="home">Home page</s-option>
+                <s-option value="custom">Custom same-store path</s-option>
+              </s-select>
+              {redirectMode === "custom" ? (
+                <s-text-field
+                  label="Custom path"
+                  details="Use a same-store path beginning with a slash."
+                  name="redirectPath"
+                  defaultValue={data.redirectPath}
+                  placeholder="/collections/all"
+                  disabled={busy}
+                />
+              ) : (
+                <input
+                  type="hidden"
+                  name="redirectPath"
+                  value={data.redirectPath}
+                />
+              )}
+              <s-text color="subdued">
+                Redirects are created only for products hidden by Inventex and
+                deleted when those products are restored.
+              </s-text>
+            </s-stack>
+          </s-section>
+
+          <s-section heading="Variant hiding">
+            <s-stack direction="block" gap="base">
+              <s-badge tone="info">Beta</s-badge>
+              <input
+                type="hidden"
+                name="variantHideEnabled"
+                value={String(variantHideEnabled)}
+              />
+              <s-checkbox
+                label="Hide sold-out variants"
+                details="Unpublish only sold-out variants from the Online Store. Products with an available variant stay published."
+                checked={variantHideEnabled}
+                disabled={busy}
+                onChange={(event) =>
+                  setVariantHideEnabled(
+                    (event.currentTarget as HTMLElement & { checked: boolean })
+                      .checked,
+                  )
+                }
+              />
+              <s-text color="subdued">
+                Available for catalogs with up to 500 published products.
+                Currently hidden by Inventex: {data.hiddenVariantCount}{" "}
+                variants.
+              </s-text>
+            </s-stack>
+          </s-section>
+        </s-stack>
       </s-page>
     </Form>
   );

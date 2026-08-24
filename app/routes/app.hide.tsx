@@ -145,54 +145,13 @@ export default function HideProducts() {
   const settingsBusy = data.locked || settingsFetcher.state !== "idle";
 
   return (
-    <s-page heading="Hide products" inlineSize="base">
-      <s-link slot="breadcrumb-actions" href="/app">
-        Dashboard
-      </s-link>
-
-      <s-paragraph>
-        Unpublish sold-out products from the Online Store and restore them
-        automatically after restock.
-      </s-paragraph>
-
-      {data.locked && (
-        <s-banner tone="info">
-          Hide settings are locked while the catalog job is running. They will
-          unlock automatically when the job finishes.
-        </s-banner>
-      )}
-
-      <settingsFetcher.Form method="post">
-        <input type="hidden" name="_action" value="saveHideSettings" />
-        <input type="hidden" name="hideEnabled" value={String(enabled)} />
-        <s-section heading="Online Store availability">
-          <s-stack direction="block" gap="base">
-            <s-checkbox
-              label="Hide sold-out products"
-              details="Only the Online Store publication is removed. Other sales channels remain unchanged."
-              checked={enabled}
-              disabled={settingsBusy}
-              onChange={(event) =>
-                setEnabled(
-                  (event.currentTarget as HTMLElement & { checked: boolean })
-                    .checked,
-                )
-              }
-            />
-            <s-number-field
-              label="Delay before hiding"
-              details="Restocked products cancel pending hides automatically."
-              suffix="days"
-              name="hideDelayDays"
-              min={0}
-              max={365}
-              step={1}
-              defaultValue={String(data.hideDelayDays)}
-              disabled={settingsBusy}
-            />
-          </s-stack>
-        </s-section>
-
+    <settingsFetcher.Form method="post">
+      <input type="hidden" name="_action" value="saveHideSettings" />
+      <input type="hidden" name="hideEnabled" value={String(enabled)} />
+      <s-page heading="Hide products" inlineSize="base">
+        <s-link slot="breadcrumb-actions" href="/app">
+          Dashboard
+        </s-link>
         <s-button
           slot="primary-action"
           type="submit"
@@ -202,115 +161,167 @@ export default function HideProducts() {
         >
           Save settings
         </s-button>
-      </settingsFetcher.Form>
 
-      <s-section heading={`Ignored products (${data.excludedProducts.length})`}>
-        <s-stack direction="block" gap="base">
-          <s-text color="subdued">
-            Products selected here, or tagged inventex-ignore, are never hidden.
-          </s-text>
-          <s-button
-            onClick={addIgnoredProducts}
-            {...(ignoreFetcher.state !== "idle" ? { loading: true } : {})}
-          >
-            Add products
-          </s-button>
-          {data.excludedProducts.length === 0 ? (
-            <s-box padding="base" background="subdued" borderRadius="base">
-              <s-text color="subdued">
-                No ignored products. Add products that should always remain
-                available on the Online Store.
-              </s-text>
-            </s-box>
-          ) : (
-            <s-stack direction="block" gap="small">
-              {data.excludedProducts.map((product) => (
-                <s-box
-                  key={product.productId}
-                  padding="small"
-                  borderWidth="base"
-                  borderRadius="base"
-                >
-                  <s-stack
-                    direction="inline"
-                    gap="base"
-                    alignItems="center"
-                    justifyContent="space-between"
-                  >
-                    <s-text>{product.productTitle}</s-text>
-                    <s-button
-                      variant="tertiary"
-                      tone="critical"
-                      onClick={() =>
-                        ignoreFetcher.submit(
-                          {
-                            _action: "removeExcludedProduct",
-                            productId: product.productId,
-                          },
-                          { method: "POST" },
-                        )
-                      }
-                    >
-                      Remove
-                    </s-button>
-                  </s-stack>
-                </s-box>
-              ))}
-            </s-stack>
+        <s-stack direction="block" gap="large">
+          <s-paragraph>
+            Unpublish sold-out products from the Online Store and restore them
+            automatically after restock.
+          </s-paragraph>
+
+          {data.locked && (
+            <s-banner tone="info">
+              Hide settings are locked while the catalog job is running. They
+              will unlock automatically when the job finishes.
+            </s-banner>
           )}
-        </s-stack>
-      </s-section>
 
-      <s-section heading={`App-hidden products (${data.hiddenCount})`}>
-        {data.hiddenProducts.length === 0 ? (
-          <s-box padding="base" background="subdued" borderRadius="base">
-            <s-text color="subdued">
-              No products are currently hidden by Inventex.
-            </s-text>
-          </s-box>
-        ) : (
-          <s-stack direction="block" gap="small">
-            {data.hiddenProducts.map((product) => (
-              <s-box
-                key={product.productId}
-                padding="small"
-                borderWidth="base"
-                borderRadius="base"
-              >
-                <s-stack direction="block" gap="small">
-                  <s-text type="strong">
-                    {product.productTitle || product.productId}
-                  </s-text>
-                  <s-badge tone={product.error ? "critical" : "success"}>
-                    {product.error ? "Needs attention" : "Hidden"}
-                  </s-badge>
+          <s-section heading="Online Store availability">
+            <s-stack direction="block" gap="base">
+              <s-checkbox
+                label="Hide sold-out products"
+                details="Only the Online Store publication is removed. Other sales channels remain unchanged."
+                checked={enabled}
+                disabled={settingsBusy}
+                onChange={(event) =>
+                  setEnabled(
+                    (event.currentTarget as HTMLElement & { checked: boolean })
+                      .checked,
+                  )
+                }
+              />
+              <s-number-field
+                label="Delay before hiding"
+                details="Restocked products cancel pending hides automatically."
+                suffix="days"
+                name="hideDelayDays"
+                min={0}
+                max={365}
+                step={1}
+                defaultValue={String(data.hideDelayDays)}
+                disabled={settingsBusy}
+              />
+            </s-stack>
+          </s-section>
+
+          <s-section
+            heading={`Ignored products (${data.excludedProducts.length})`}
+          >
+            <s-stack direction="block" gap="base">
+              <s-text color="subdued">
+                Products selected here, or tagged inventex-ignore, are never
+                hidden.
+              </s-text>
+              <s-stack direction="inline">
+                <s-button
+                  type="button"
+                  onClick={addIgnoredProducts}
+                  {...(ignoreFetcher.state !== "idle" ? { loading: true } : {})}
+                >
+                  Add products
+                </s-button>
+              </s-stack>
+              {data.excludedProducts.length === 0 ? (
+                <s-box padding="base" background="subdued" borderRadius="base">
                   <s-text color="subdued">
-                    Hidden {new Date(product.modifiedAt).toLocaleString()}
-                    {product.redirectId ? " · Redirect active" : ""}
+                    No ignored products. Add products that should always remain
+                    available on the Online Store.
                   </s-text>
-                  {product.error && (
-                    <s-text tone="critical">
-                      {product.errorMessage ?? "Hide operation failed"}
-                    </s-text>
-                  )}
+                </s-box>
+              ) : (
+                <s-stack direction="block" gap="small">
+                  {data.excludedProducts.map((product) => (
+                    <s-box
+                      key={product.productId}
+                      padding="base"
+                      borderWidth="base"
+                      borderRadius="base"
+                    >
+                      <s-stack
+                        direction="inline"
+                        gap="base"
+                        alignItems="center"
+                        justifyContent="space-between"
+                      >
+                        <s-text>{product.productTitle}</s-text>
+                        <s-button
+                          type="button"
+                          variant="tertiary"
+                          tone="critical"
+                          onClick={() =>
+                            ignoreFetcher.submit(
+                              {
+                                _action: "removeExcludedProduct",
+                                productId: product.productId,
+                              },
+                              { method: "POST" },
+                            )
+                          }
+                        >
+                          Remove
+                        </s-button>
+                      </s-stack>
+                    </s-box>
+                  ))}
                 </s-stack>
-              </s-box>
-            ))}
-          </s-stack>
-        )}
-      </s-section>
+              )}
+            </s-stack>
+          </s-section>
 
-      <s-section slot="aside" heading="Uninstall behavior">
-        <s-paragraph>
-          Uninstalling Inventex does not republish products. The inventex-hidden
-          tag and redirects remain so the merchant keeps control.
-        </s-paragraph>
-        <s-paragraph>
-          Configure hidden-product redirects in{" "}
-          <s-link href="/app/settings">Settings</s-link>.
-        </s-paragraph>
-      </s-section>
-    </s-page>
+          <s-section heading={`App-hidden products (${data.hiddenCount})`}>
+            {data.hiddenProducts.length === 0 ? (
+              <s-box padding="base" background="subdued" borderRadius="base">
+                <s-text color="subdued">
+                  No products are currently hidden by Inventex.
+                </s-text>
+              </s-box>
+            ) : (
+              <s-stack direction="block" gap="small">
+                {data.hiddenProducts.map((product) => (
+                  <s-box
+                    key={product.productId}
+                    padding="base"
+                    borderWidth="base"
+                    borderRadius="base"
+                  >
+                    <s-stack direction="block" gap="small">
+                      <s-text type="strong">
+                        {product.productTitle || product.productId}
+                      </s-text>
+                      <s-badge tone={product.error ? "critical" : "success"}>
+                        {product.error ? "Needs attention" : "Hidden"}
+                      </s-badge>
+                      <s-text color="subdued">
+                        Hidden {new Date(product.modifiedAt).toLocaleString()}
+                        {product.redirectId ? " · Redirect active" : ""}
+                      </s-text>
+                      {product.error && (
+                        <s-text tone="critical">
+                          {product.errorMessage ?? "Hide operation failed"}
+                        </s-text>
+                      )}
+                    </s-stack>
+                  </s-box>
+                ))}
+              </s-stack>
+            )}
+          </s-section>
+        </s-stack>
+
+        <s-section slot="aside" heading="Uninstall behavior">
+          <s-stack direction="block" gap="base">
+            <s-paragraph>
+              Uninstalling Inventex does not republish products. The
+              inventex-hidden tag and redirects remain so the merchant keeps
+              control.
+            </s-paragraph>
+            <s-paragraph>
+              Configure hidden-product redirects in{" "}
+              <s-link href="/app/settings">Settings</s-link>.
+            </s-paragraph>
+          </s-stack>
+        </s-section>
+      </s-page>
+    </settingsFetcher.Form>
   );
 }
 

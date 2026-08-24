@@ -460,219 +460,222 @@ export default function Alerts() {
           Save settings
         </s-button>
 
-        <s-paragraph>
-          Choose which inventory changes matter and when your team should hear
-          about them.
-        </s-paragraph>
+        <s-stack direction="block" gap="large">
+          <s-paragraph>
+            Choose which inventory changes matter and when your team should hear
+            about them.
+          </s-paragraph>
 
-        {actionData?.success === false ? (
-          <s-banner tone="critical" heading="Settings were not saved">
-            {actionData.error}
-          </s-banner>
-        ) : null}
+          {actionData?.success === false ? (
+            <s-banner tone="critical" heading="Settings were not saved">
+              {actionData.error}
+            </s-banner>
+          ) : null}
 
-        <s-section heading="Email alerts">
-          <s-stack direction="block" gap="base">
-            <s-stack direction="inline" gap="small" alignItems="center">
-              <s-badge tone={lowStockEnabled ? "success" : "neutral"}>
-                {lowStockEnabled ? "On" : "Off"}
-              </s-badge>
+          <s-section heading="Email alerts">
+            <s-stack direction="block" gap="base">
+              <s-stack direction="inline" gap="small" alignItems="center">
+                <s-badge tone={lowStockEnabled ? "success" : "neutral"}>
+                  {lowStockEnabled ? "On" : "Off"}
+                </s-badge>
+              </s-stack>
+              <s-checkbox
+                label="Enable inventory email alerts"
+                details="Monitor products and send notifications using the rules below."
+                checked={lowStockEnabled}
+                disabled={isSaving}
+                onChange={(event) =>
+                  setLowStockEnabled(formElement(event).checked)
+                }
+              />
             </s-stack>
-            <s-checkbox
-              label="Enable inventory email alerts"
-              details="Monitor products and send notifications using the rules below."
-              checked={lowStockEnabled}
-              disabled={isSaving}
-              onChange={(event) =>
-                setLowStockEnabled(formElement(event).checked)
-              }
-            />
-          </s-stack>
-        </s-section>
+          </s-section>
 
-        {lowStockEnabled ? (
-          <>
-            <s-section heading="Delivery schedule">
-              <s-stack direction="block" gap="base">
-                <s-choice-list
-                  label="Alert frequency"
-                  values={[alertFrequency]}
-                  onChange={(event) =>
-                    setAlertFrequency(
-                      formElement(event).values[0] ?? "IMMEDIATE",
-                    )
-                  }
-                >
-                  {FREQUENCY_OPTIONS.map((option) => (
-                    <s-choice key={option.value} value={option.value}>
-                      {option.label}
-                      <s-text slot="details" color="subdued">
-                        {option.description}
-                      </s-text>
-                    </s-choice>
-                  ))}
-                </s-choice-list>
-
-                {alertFrequency !== "IMMEDIATE" ? (
-                  <s-grid
-                    gridTemplateColumns="repeat(auto-fit, minmax(140px, 1fr))"
-                    gap="base"
+          {lowStockEnabled ? (
+            <>
+              <s-section heading="Delivery schedule">
+                <s-stack direction="block" gap="base">
+                  <s-choice-list
+                    label="Alert frequency"
+                    values={[alertFrequency]}
+                    onChange={(event) =>
+                      setAlertFrequency(
+                        formElement(event).values[0] ?? "IMMEDIATE",
+                      )
+                    }
                   >
-                    {alertFrequency === "WEEKLY" ? (
+                    {FREQUENCY_OPTIONS.map((option) => (
+                      <s-choice key={option.value} value={option.value}>
+                        {option.label}
+                        <s-text slot="details" color="subdued">
+                          {option.description}
+                        </s-text>
+                      </s-choice>
+                    ))}
+                  </s-choice-list>
+
+                  {alertFrequency !== "IMMEDIATE" ? (
+                    <s-grid
+                      gridTemplateColumns="repeat(auto-fit, minmax(140px, 1fr))"
+                      gap="base"
+                    >
+                      {alertFrequency === "WEEKLY" ? (
+                        <s-select
+                          label="Weekday"
+                          value={String(weeklyDigestDay)}
+                          onChange={(event) =>
+                            setWeeklyDigestDay(Number(formElement(event).value))
+                          }
+                        >
+                          {WEEKDAYS.map((day, index) => (
+                            <s-option key={day} value={String(index)}>
+                              {day}
+                            </s-option>
+                          ))}
+                        </s-select>
+                      ) : null}
                       <s-select
-                        label="Weekday"
-                        value={String(weeklyDigestDay)}
+                        label="Hour"
+                        value={String(dailyAlertHour)}
                         onChange={(event) =>
-                          setWeeklyDigestDay(Number(formElement(event).value))
+                          setDailyAlertHour(Number(formElement(event).value))
                         }
                       >
-                        {WEEKDAYS.map((day, index) => (
-                          <s-option key={day} value={String(index)}>
-                            {day}
-                          </s-option>
-                        ))}
-                      </s-select>
-                    ) : null}
-                    <s-select
-                      label="Hour"
-                      value={String(dailyAlertHour)}
-                      onChange={(event) =>
-                        setDailyAlertHour(Number(formElement(event).value))
-                      }
-                    >
-                      {Array.from({ length: 12 }, (_, index) => index + 1).map(
-                        (hour) => (
+                        {Array.from(
+                          { length: 12 },
+                          (_, index) => index + 1,
+                        ).map((hour) => (
                           <s-option key={hour} value={String(hour)}>
                             {String(hour).padStart(2, "0")}:00
                           </s-option>
-                        ),
-                      )}
-                    </s-select>
-                    <s-select
-                      label="Period"
-                      value={dailyAlertAmPm}
-                      onChange={(event) =>
-                        setDailyAlertAmPm(formElement(event).value)
-                      }
-                    >
-                      <s-option value="AM">AM</s-option>
-                      <s-option value="PM">PM</s-option>
-                    </s-select>
-                    <s-select
-                      label="Timezone"
-                      value={dailyAlertTimezone}
-                      onChange={(event) =>
-                        setDailyAlertTimezone(formElement(event).value)
-                      }
-                    >
-                      {TIMEZONES.map((group) => (
-                        <s-option-group key={group.group} label={group.group}>
-                          {group.zones.map((zone) => (
-                            <s-option key={zone.value} value={zone.value}>
-                              {zone.label}
-                            </s-option>
-                          ))}
-                        </s-option-group>
-                      ))}
-                    </s-select>
-                  </s-grid>
-                ) : null}
-              </s-stack>
-            </s-section>
-
-            <s-section heading="Inventory rules">
-              <s-stack direction="block" gap="base">
-                <s-choice-list
-                  label="Evaluate inventory by"
-                  values={[stockCheckLevel]}
-                  onChange={(event) =>
-                    setStockCheckLevel(
-                      formElement(event).values[0] ?? "PRODUCT",
-                    )
-                  }
-                >
-                  <s-choice value="PRODUCT">
-                    Product
-                    <s-text slot="details" color="subdued">
-                      Use combined inventory across all variants.
-                    </s-text>
-                  </s-choice>
-                  <s-choice value="VARIANT">
-                    Each variant
-                    <s-text slot="details" color="subdued">
-                      Evaluate sizes, colors, and other variants separately.
-                    </s-text>
-                  </s-choice>
-                </s-choice-list>
-
-                <s-divider />
-
-                <s-checkbox
-                  label="Low stock"
-                  details="Notify when inventory reaches or falls below the threshold."
-                  checked={alertOnLowStock}
-                  onChange={(event) =>
-                    setAlertOnLowStock(formElement(event).checked)
-                  }
-                />
-                {alertOnLowStock ? (
-                  <s-number-field
-                    label="Low-stock threshold"
-                    value={lowStockThreshold}
-                    min={1}
-                    max={5000}
-                    suffix="units"
-                    error={thresholdError ?? undefined}
-                    onInput={(event) => {
-                      setLowStockThreshold(formElement(event).value);
-                      setThresholdError(null);
-                    }}
-                  />
-                ) : null}
-                <s-checkbox
-                  label="Out of stock"
-                  details="Notify when inventory reaches zero."
-                  checked={alertOnOutOfStock}
-                  onChange={(event) =>
-                    setAlertOnOutOfStock(formElement(event).checked)
-                  }
-                />
-              </s-stack>
-            </s-section>
-
-            <s-section heading="Recipients">
-              <s-text-field
-                label="Email addresses"
-                details={`${emailCount} of 5 recipients. Separate addresses with commas.`}
-                value={emailsInput}
-                placeholder="you@example.com, colleague@example.com"
-                error={emailError ?? undefined}
-                onInput={(event) => {
-                  setEmailsInput(formElement(event).value);
-                  setEmailError(null);
-                }}
-              />
-            </s-section>
-
-            <s-section heading="Preview email">
-              <s-stack direction="block" gap="base">
-                <s-paragraph>
-                  Save your settings first, then send a sample to the saved
-                  recipients.
-                </s-paragraph>
-                <s-stack direction="inline">
-                  <s-button
-                    type="button"
-                    loading={isSendingPreview}
-                    onClick={handleSendPreview}
-                  >
-                    Send preview email
-                  </s-button>
+                        ))}
+                      </s-select>
+                      <s-select
+                        label="Period"
+                        value={dailyAlertAmPm}
+                        onChange={(event) =>
+                          setDailyAlertAmPm(formElement(event).value)
+                        }
+                      >
+                        <s-option value="AM">AM</s-option>
+                        <s-option value="PM">PM</s-option>
+                      </s-select>
+                      <s-select
+                        label="Timezone"
+                        value={dailyAlertTimezone}
+                        onChange={(event) =>
+                          setDailyAlertTimezone(formElement(event).value)
+                        }
+                      >
+                        {TIMEZONES.map((group) => (
+                          <s-option-group key={group.group} label={group.group}>
+                            {group.zones.map((zone) => (
+                              <s-option key={zone.value} value={zone.value}>
+                                {zone.label}
+                              </s-option>
+                            ))}
+                          </s-option-group>
+                        ))}
+                      </s-select>
+                    </s-grid>
+                  ) : null}
                 </s-stack>
-              </s-stack>
-            </s-section>
-          </>
-        ) : null}
+              </s-section>
+
+              <s-section heading="Inventory rules">
+                <s-stack direction="block" gap="base">
+                  <s-choice-list
+                    label="Evaluate inventory by"
+                    values={[stockCheckLevel]}
+                    onChange={(event) =>
+                      setStockCheckLevel(
+                        formElement(event).values[0] ?? "PRODUCT",
+                      )
+                    }
+                  >
+                    <s-choice value="PRODUCT">
+                      Product
+                      <s-text slot="details" color="subdued">
+                        Use combined inventory across all variants.
+                      </s-text>
+                    </s-choice>
+                    <s-choice value="VARIANT">
+                      Each variant
+                      <s-text slot="details" color="subdued">
+                        Evaluate sizes, colors, and other variants separately.
+                      </s-text>
+                    </s-choice>
+                  </s-choice-list>
+
+                  <s-divider />
+
+                  <s-checkbox
+                    label="Low stock"
+                    details="Notify when inventory reaches or falls below the threshold."
+                    checked={alertOnLowStock}
+                    onChange={(event) =>
+                      setAlertOnLowStock(formElement(event).checked)
+                    }
+                  />
+                  {alertOnLowStock ? (
+                    <s-number-field
+                      label="Low-stock threshold"
+                      value={lowStockThreshold}
+                      min={1}
+                      max={5000}
+                      suffix="units"
+                      error={thresholdError ?? undefined}
+                      onInput={(event) => {
+                        setLowStockThreshold(formElement(event).value);
+                        setThresholdError(null);
+                      }}
+                    />
+                  ) : null}
+                  <s-checkbox
+                    label="Out of stock"
+                    details="Notify when inventory reaches zero."
+                    checked={alertOnOutOfStock}
+                    onChange={(event) =>
+                      setAlertOnOutOfStock(formElement(event).checked)
+                    }
+                  />
+                </s-stack>
+              </s-section>
+
+              <s-section heading="Recipients">
+                <s-text-field
+                  label="Email addresses"
+                  details={`${emailCount} of 5 recipients. Separate addresses with commas.`}
+                  value={emailsInput}
+                  placeholder="you@example.com, colleague@example.com"
+                  error={emailError ?? undefined}
+                  onInput={(event) => {
+                    setEmailsInput(formElement(event).value);
+                    setEmailError(null);
+                  }}
+                />
+              </s-section>
+
+              <s-section heading="Preview email">
+                <s-stack direction="block" gap="base">
+                  <s-paragraph>
+                    Save your settings first, then send a sample to the saved
+                    recipients.
+                  </s-paragraph>
+                  <s-stack direction="inline">
+                    <s-button
+                      type="button"
+                      loading={isSendingPreview}
+                      onClick={handleSendPreview}
+                    >
+                      Send preview email
+                    </s-button>
+                  </s-stack>
+                </s-stack>
+              </s-section>
+            </>
+          ) : null}
+        </s-stack>
       </s-page>
     </Form>
   );

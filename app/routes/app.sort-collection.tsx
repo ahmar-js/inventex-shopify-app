@@ -346,6 +346,14 @@ export default function SortCollection() {
     ? `/app/sort-collection?cursor=${pageInfo.endCursor}`
     : null;
   const previousHref = pageInfo.hasPreviousPage ? "/app/sort-collection" : null;
+  const tablePagination = {
+    paginate: pageInfo.hasNextPage || pageInfo.hasPreviousPage,
+    hasPreviousPage: pageInfo.hasPreviousPage,
+    hasNextPage: pageInfo.hasNextPage,
+    onPreviousPage: () =>
+      previousHref ? navigate(previousHref) : undefined,
+    onNextPage: () => (nextHref ? navigate(nextHref) : undefined),
+  };
 
   return (
     <>
@@ -420,122 +428,117 @@ export default function SortCollection() {
           Enable sorting for all
         </s-button>
 
-        <s-paragraph>
-          Keep available products first without changing Shopify&apos;s collection
-          sort type from Manual.
-        </s-paragraph>
+        <s-stack direction="block" gap="large">
+          <s-paragraph>
+            Keep available products first without changing Shopify&apos;s
+            collection sort type from Manual.
+          </s-paragraph>
 
-        <s-banner tone="info" heading="Shopify stays set to Manual">
-          Base order controls the order of available products. Inventex places
-          continue-selling and sold-out products after them.
-        </s-banner>
+          <s-banner tone="info" heading="Shopify stays set to Manual">
+            Base order controls the order of available products. Inventex places
+            continue-selling and sold-out products after them.
+          </s-banner>
 
-        <s-section heading="Collections" padding="none">
-          {collections.length === 0 ? (
-            <s-box padding="large" background="subdued">
-              <s-stack direction="block" gap="small" alignItems="center">
-                <s-heading>No collections found</s-heading>
-                <s-paragraph>
-                  Create a collection in Shopify, then return here.
-                </s-paragraph>
-              </s-stack>
-            </s-box>
-          ) : (
-            <s-table
-              variant="auto"
-              paginate={pageInfo.hasNextPage || pageInfo.hasPreviousPage}
-              hasPreviousPage={pageInfo.hasPreviousPage}
-              hasNextPage={pageInfo.hasNextPage}
-              onPreviousPage={() =>
-                previousHref ? navigate(previousHref) : undefined
-              }
-              onNextPage={() => (nextHref ? navigate(nextHref) : undefined)}
-            >
-              <s-search-field
-                slot="filters"
-                label="Search collections"
-                labelAccessibilityVisibility="exclusive"
-                placeholder="Search collections"
-                value={searchQuery}
-                onInput={(event) => setSearchQuery(elementValue(event))}
-              />
-              <s-table-header-row>
-                <s-table-header listSlot="primary">Collection</s-table-header>
-                <s-table-header listSlot="inline">Auto sorting</s-table-header>
-                <s-table-header listSlot="labeled">Base order</s-table-header>
-                <s-table-header listSlot="secondary" format="numeric">
-                  Products
-                </s-table-header>
-              </s-table-header-row>
-              <s-table-body>
-                {displayRows.map((collection) => (
-                  <s-table-row key={collection.id}>
-                    <s-table-cell>
-                      <s-stack direction="block" gap="small">
-                        <s-text type="strong">{collection.title}</s-text>
-                        <s-badge
-                          tone={
-                            collection.type === "smart" ? "info" : "neutral"
-                          }
-                        >
-                          {collection.type === "smart" ? "Smart" : "Custom"}
-                        </s-badge>
-                      </s-stack>
-                    </s-table-cell>
-                    <s-table-cell>
-                      <s-select
-                        label={`Auto sorting for ${collection.title}`}
-                        labelAccessibilityVisibility="exclusive"
-                        value={autoSorting[collection.id] ?? "disabled"}
-                        onChange={(event) =>
-                          handleAutoSortingChange(
-                            collection.id,
-                            elementValue(event),
-                          )
-                        }
-                      >
-                        <s-option value="enabled">Enabled</s-option>
-                        <s-option value="disabled">Disabled</s-option>
-                      </s-select>
-                    </s-table-cell>
-                    <s-table-cell>
-                      {processingIds.has(collection.id) ? (
-                        <s-badge tone="info">Applying</s-badge>
-                      ) : (
+          <s-section heading="Collections">
+            {collections.length === 0 ? (
+              <s-box padding="large" background="subdued">
+                <s-stack direction="block" gap="small" alignItems="center">
+                  <s-heading>No collections found</s-heading>
+                  <s-paragraph>
+                    Create a collection in Shopify, then return here.
+                  </s-paragraph>
+                </s-stack>
+              </s-box>
+            ) : (
+              <s-table variant="auto" {...tablePagination}>
+                <s-search-field
+                  slot="filters"
+                  label="Search collections"
+                  labelAccessibilityVisibility="exclusive"
+                  placeholder="Search collections"
+                  value={searchQuery}
+                  onInput={(event) => setSearchQuery(elementValue(event))}
+                />
+                <s-table-header-row>
+                  <s-table-header listSlot="primary">Collection</s-table-header>
+                  <s-table-header listSlot="inline">
+                    Auto sorting
+                  </s-table-header>
+                  <s-table-header listSlot="labeled">Base order</s-table-header>
+                  <s-table-header listSlot="secondary" format="numeric">
+                    Products
+                  </s-table-header>
+                </s-table-header-row>
+                <s-table-body>
+                  {displayRows.map((collection) => (
+                    <s-table-row key={collection.id}>
+                      <s-table-cell>
+                        <s-stack direction="block" gap="small">
+                          <s-text type="strong">{collection.title}</s-text>
+                          <s-badge
+                            tone={
+                              collection.type === "smart" ? "info" : "neutral"
+                            }
+                          >
+                            {collection.type === "smart" ? "Smart" : "Custom"}
+                          </s-badge>
+                        </s-stack>
+                      </s-table-cell>
+                      <s-table-cell>
                         <s-select
-                          label={`Base order for ${collection.title}`}
+                          label={`Auto sorting for ${collection.title}`}
                           labelAccessibilityVisibility="exclusive"
-                          value={
-                            sortOrderOverride[collection.id] ??
-                            collection.sortOrder
-                          }
+                          value={autoSorting[collection.id] ?? "disabled"}
                           onChange={(event) =>
-                            requestSortChange(collection, elementValue(event))
+                            handleAutoSortingChange(
+                              collection.id,
+                              elementValue(event),
+                            )
                           }
                         >
-                          {Object.entries(SORT_ORDER_LABELS).map(
-                            ([value, label]) => (
-                              <s-option key={value} value={value}>
-                                {label}
-                              </s-option>
-                            ),
-                          )}
+                          <s-option value="enabled">Enabled</s-option>
+                          <s-option value="disabled">Disabled</s-option>
                         </s-select>
-                      )}
-                    </s-table-cell>
-                    <s-table-cell>{collection.productsCount}</s-table-cell>
-                  </s-table-row>
-                ))}
-              </s-table-body>
-            </s-table>
-          )}
+                      </s-table-cell>
+                      <s-table-cell>
+                        {processingIds.has(collection.id) ? (
+                          <s-badge tone="info">Applying</s-badge>
+                        ) : (
+                          <s-select
+                            label={`Base order for ${collection.title}`}
+                            labelAccessibilityVisibility="exclusive"
+                            value={
+                              sortOrderOverride[collection.id] ??
+                              collection.sortOrder
+                            }
+                            onChange={(event) =>
+                              requestSortChange(collection, elementValue(event))
+                            }
+                          >
+                            {Object.entries(SORT_ORDER_LABELS).map(
+                              ([value, label]) => (
+                                <s-option key={value} value={value}>
+                                  {label}
+                                </s-option>
+                              ),
+                            )}
+                          </s-select>
+                        )}
+                      </s-table-cell>
+                      <s-table-cell>{collection.productsCount}</s-table-cell>
+                    </s-table-row>
+                  ))}
+                </s-table-body>
+              </s-table>
+            )}
 
-          {collections.length > 0 && displayRows.length === 0 ? (
-            <s-box padding="large" background="subdued">
-              <s-paragraph>No collections match “{searchQuery}”.</s-paragraph>
-            </s-box>
-          ) : null}
-        </s-section>
+            {collections.length > 0 && displayRows.length === 0 ? (
+              <s-box padding="large" background="subdued">
+                <s-paragraph>No collections match “{searchQuery}”.</s-paragraph>
+              </s-box>
+            ) : null}
+          </s-section>
+        </s-stack>
       </s-page>
     </>
   );

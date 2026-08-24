@@ -172,113 +172,115 @@ export default function Dashboard() {
         Scan catalog
       </s-button>
 
-      <s-paragraph>
-        Monitor inventory automation and quickly reach the settings that need
-        attention.
-      </s-paragraph>
+      <s-stack direction="block" gap="large">
+        <s-paragraph>
+          Monitor inventory automation and quickly reach the settings that need
+          attention.
+        </s-paragraph>
 
-      {!data.onboardingCompleted && (
-        <s-section heading="Get started">
-          <s-stack direction="block" gap="base">
-            <s-paragraph>
-              Choose the first automation you want to configure. Sorting and
-              hiding remain independent, so you can enable both later.
-            </s-paragraph>
-            <s-grid
-              gridTemplateColumns="repeat(auto-fit, minmax(220px, 1fr))"
-              gap="base"
-            >
-              <s-box padding="base" borderWidth="base" borderRadius="base">
-                <s-stack direction="block" gap="base">
-                  <s-badge tone="info">Recommended first step</s-badge>
-                  <s-heading>Sort sold-out products last</s-heading>
-                  <s-text color="subdued">
-                    Choose collections and preserve their in-stock order.
-                  </s-text>
-                  <Form method="post">
-                    <input
-                      type="hidden"
-                      name="_action"
-                      value="chooseOnboarding"
-                    />
-                    <input type="hidden" name="choice" value="SORT" />
-                    <s-button type="submit" variant="primary">
-                      Set up sorting
-                    </s-button>
-                  </Form>
-                </s-stack>
-              </s-box>
-              <s-box padding="base" borderWidth="base" borderRadius="base">
-                <s-stack direction="block" gap="base">
-                  <s-heading>Hide sold-out products</s-heading>
-                  <s-text color="subdued">
-                    Unpublish sold-out products from Online Store only.
-                  </s-text>
-                  <Form method="post">
-                    <input
-                      type="hidden"
-                      name="_action"
-                      value="chooseOnboarding"
-                    />
-                    <input type="hidden" name="choice" value="HIDE" />
-                    <s-button type="submit" variant="primary">
-                      Set up hiding
-                    </s-button>
-                  </Form>
-                </s-stack>
-              </s-box>
-            </s-grid>
-          </s-stack>
+        {!data.onboardingCompleted && (
+          <s-section heading="Get started">
+            <s-stack direction="block" gap="base">
+              <s-paragraph>
+                Choose the first automation you want to configure. Sorting and
+                hiding remain independent, so you can enable both later.
+              </s-paragraph>
+              <s-grid
+                gridTemplateColumns="repeat(auto-fit, minmax(220px, 1fr))"
+                gap="base"
+              >
+                <s-box padding="base" borderWidth="base" borderRadius="base">
+                  <s-stack direction="block" gap="base">
+                    <s-badge tone="info">Recommended first step</s-badge>
+                    <s-heading>Sort sold-out products last</s-heading>
+                    <s-text color="subdued">
+                      Choose collections and preserve their in-stock order.
+                    </s-text>
+                    <Form method="post">
+                      <input
+                        type="hidden"
+                        name="_action"
+                        value="chooseOnboarding"
+                      />
+                      <input type="hidden" name="choice" value="SORT" />
+                      <s-button type="submit" variant="primary">
+                        Set up sorting
+                      </s-button>
+                    </Form>
+                  </s-stack>
+                </s-box>
+                <s-box padding="base" borderWidth="base" borderRadius="base">
+                  <s-stack direction="block" gap="base">
+                    <s-heading>Hide sold-out products</s-heading>
+                    <s-text color="subdued">
+                      Unpublish sold-out products from Online Store only.
+                    </s-text>
+                    <Form method="post">
+                      <input
+                        type="hidden"
+                        name="_action"
+                        value="chooseOnboarding"
+                      />
+                      <input type="hidden" name="choice" value="HIDE" />
+                      <s-button type="submit" variant="primary">
+                        Set up hiding
+                      </s-button>
+                    </Form>
+                  </s-stack>
+                </s-box>
+              </s-grid>
+            </s-stack>
+          </s-section>
+        )}
+
+        <s-section heading="Automation overview">
+          <s-grid
+            gridTemplateColumns="repeat(auto-fit, minmax(190px, 1fr))"
+            gap="base"
+          >
+            <FeatureCard
+              title="Sorting"
+              status={
+                paused && data.sorting.activeCount > 0
+                  ? "Paused"
+                  : data.sorting.runningJobs > 0
+                    ? "Working"
+                    : data.sorting.activeCount > 0
+                      ? "On"
+                      : "Off"
+              }
+              detail={`${data.sorting.activeCount} collection${data.sorting.activeCount === 1 ? "" : "s"} active`}
+              href="/app/sort-collection"
+            />
+            <FeatureCard
+              title="Hiding"
+              status={
+                paused && data.hiding.enabled
+                  ? "Paused"
+                  : data.hiding.runningJobs > 0
+                    ? "Working"
+                    : data.hiding.enabled
+                      ? "On"
+                      : "Off"
+              }
+              detail={`${data.hiding.hiddenCount} products and ${data.hiding.hiddenVariantCount} variants hidden`}
+              href="/app/hide"
+            />
+            <FeatureCard
+              title="Alerts"
+              status={
+                paused && data.alerts.enabled
+                  ? "Paused"
+                  : data.alerts.enabled
+                    ? "On"
+                    : "Off"
+              }
+              detail={`${data.alerts.queuedCount} digest alert${data.alerts.queuedCount === 1 ? "" : "s"} queued`}
+              href="/app/alerts"
+            />
+          </s-grid>
         </s-section>
-      )}
-
-      <s-section heading="Automation overview">
-        <s-grid
-          gridTemplateColumns="repeat(auto-fit, minmax(190px, 1fr))"
-          gap="base"
-        >
-          <FeatureCard
-            title="Sorting"
-            status={
-              paused && data.sorting.activeCount > 0
-                ? "Paused"
-                : data.sorting.runningJobs > 0
-                  ? "Working"
-                  : data.sorting.activeCount > 0
-                    ? "On"
-                    : "Off"
-            }
-            detail={`${data.sorting.activeCount} collection${data.sorting.activeCount === 1 ? "" : "s"} active`}
-            href="/app/sort-collection"
-          />
-          <FeatureCard
-            title="Hiding"
-            status={
-              paused && data.hiding.enabled
-                ? "Paused"
-                : data.hiding.runningJobs > 0
-                  ? "Working"
-                  : data.hiding.enabled
-                    ? "On"
-                    : "Off"
-            }
-            detail={`${data.hiding.hiddenCount} products and ${data.hiding.hiddenVariantCount} variants hidden`}
-            href="/app/hide"
-          />
-          <FeatureCard
-            title="Alerts"
-            status={
-              paused && data.alerts.enabled
-                ? "Paused"
-                : data.alerts.enabled
-                  ? "On"
-                  : "Off"
-            }
-            detail={`${data.alerts.queuedCount} digest alert${data.alerts.queuedCount === 1 ? "" : "s"} queued`}
-            href="/app/alerts"
-          />
-        </s-grid>
-      </s-section>
+      </s-stack>
 
       <s-section slot="aside" heading="Plan">
         <s-stack direction="block" gap="small">
