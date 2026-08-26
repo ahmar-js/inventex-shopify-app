@@ -7,16 +7,15 @@
  *  2. Fetching current inventory from Shopify (product-level OR per-variant)
  *  3. Deciding which alert types should fire (low-stock / out-of-stock)
  *  4. Deduplication — never spam the same alert within the cooldown window
- *  5. IMMEDIATE → send email now via email.server
- *     DAILY/WEEKLY → write to AlertQueue; flushed by the cron endpoint
+ *  5. Write qualifying events to AlertQueue. IMMEDIATE events are grouped
+ *     for a short window; DAILY/WEEKLY events follow the configured schedule.
  */
 
 import db from "../db.server";
-import { sendAlertEmail, sendDigestEmail } from "./email.server";
-import type { AlertEmailPayload } from "./email.server";
+import { sendDigestEmail } from "./email.server";
 import type { ProductAvailabilityResult } from "./availability.server";
 import type { AvailabilityStatus } from "./availability";
-import { isDigestDue } from "./alerts-schedule";
+import { isDigestDue, isImmediateBatchDue } from "./alerts-schedule";
 import { isAutomationAllowed } from "./billing.server";
 
 // ─── Constants ───────────────────────────────────────────────
@@ -95,9 +94,9 @@ export async function maybeFireAlertsForAvailability(
           },
         ];
 
-  // ── 4. Evaluate & fire each target ───────────────────────
+  // ── 4. Evaluate and queue each target ────────────────────
   for (const target of targets) {
-    await evaluateTarget(target, settings, emails);
+    await evaluateTarget(target, settings);
   }
 }
 
@@ -113,7 +112,6 @@ async function evaluateTarget(
     lowStockThreshold: number;
     stockCheckLevel:   string;
   },
-  emails: string[],
 ): Promise<void> {
   const { shop, alertFrequency, alertOnLowStock, alertOnOutOfStock, lowStockThreshold } = settings;
 
@@ -146,68 +144,13 @@ async function evaluateTarget(
   }
 
   console.log(
-    `[alerts] Firing ${alertType} for "${target.productTitle}" (${target.variantTitle || "product-level"}), qty=${target.quantity}`,
+    `[alerts] Queueing ${alertType} for "${target.productTitle}" (${target.variantTitle || "product-level"}), qty=${target.quantity}`,
   );
 
-  if (alertFrequency === "IMMEDIATE") {
-    await sendImmediateAlert({ target, alertType, settings, emails });
-  } else {
-    await enqueueAlert({ target, alertType, shop });
-  }
+  await enqueueAlert({ target, alertType, shop });
 }
 
-// ─── Immediate send ─────────────────────────────────────────
-
-async function sendImmediateAlert({
-  target,
-  alertType,
-  settings,
-  emails,
-}: {
-  target:    InventoryTarget;
-  alertType: AlertType;
-  settings:  { shop: string; lowStockThreshold: number };
-  emails:    string[];
-}): Promise<void> {
-  const isOut    = alertType === "OUT_OF_STOCK";
-  const subject  = isOut
-    ? `🚨 Out of stock: ${target.productTitle}${target.variantTitle ? ` — ${target.variantTitle}` : ""}`
-    : `⚠️ Low stock: ${target.productTitle}${target.variantTitle ? ` — ${target.variantTitle}` : ""}`;
-
-  const shopHandle = settings.shop.replace(".myshopify.com", "");
-  // Extract numeric product id from GID (gid://shopify/Product/123456)
-  const numericId  = target.productId.split("/").pop() ?? "";
-  const productAdminUrl = `https://admin.shopify.com/store/${shopHandle}/products/${numericId}`;
-
-  const payload: AlertEmailPayload = {
-    to:               emails,
-    shop:             settings.shop,
-    subject,
-    productTitle:     target.productTitle,
-    variantTitle:     target.variantTitle,
-    alertType,
-    quantity:         target.quantity,
-    threshold:        settings.lowStockThreshold,
-    productAdminUrl,
-  };
-
-  try {
-    await sendAlertEmail(payload);
-    // Record the send for deduplication
-    await recordAlertSent(
-      settings.shop,
-      target.productId,
-      target.variantId,
-      alertType,
-      "IMMEDIATE",
-    );
-  } catch (err) {
-    console.error("[alerts] sendAlertEmail threw:", err);
-    // Do NOT re-throw — a failed email must never crash the webhook handler
-  }
-}
-
-// ─── Queue for DAILY / WEEKLY ────────────────────────────────
+// ─── Queue for batched immediate, daily, and weekly alerts ───
 
 async function enqueueAlert({
   target,
@@ -257,12 +200,12 @@ async function enqueueAlert({
   }
 }
 
-// ─── Cron — flush queued digests ─────────────────────────────
+// ─── Cron — flush queued alert summaries ─────────────────────
 
 /**
  * Called by the cron endpoint (POST /cron/alerts).
- * Finds every shop that has unprocessed queue items, checks whether it is
- * time to send their digest, assembles and sends it.
+ * Finds every shop that has unprocessed queue items, checks whether its
+ * immediate batch or scheduled digest is due, then sends one summary.
  */
 export async function flushAlertQueue(
   now = new Date(),
@@ -295,8 +238,17 @@ export async function flushAlertQueue(
       .filter(Boolean);
     if (emails.length === 0) continue;
 
-    // Check if it is time to send based on the shop's schedule
-    if (!isDigestDue(settings, now)) {
+    const frequency = settings.alertFrequency;
+    if (frequency === "IMMEDIATE") {
+      const latestQueuedAt = items.reduce(
+        (latest, item) => item.queuedAt > latest ? item.queuedAt : latest,
+        items[0].queuedAt,
+      );
+      if (!isImmediateBatchDue(latestQueuedAt, now, items[0].queuedAt)) {
+        console.log(`[alerts] Shop ${shop} immediate batch still collecting`);
+        continue;
+      }
+    } else if (!isDigestDue(settings, now)) {
       console.log(`[alerts] Shop ${shop} not yet due for digest, skipping`);
       continue;
     }
@@ -316,39 +268,70 @@ export async function flushAlertQueue(
       };
     });
 
-    const frequency = settings.alertFrequency;
-    const subject   = frequency === "WEEKLY"
-      ? `Inventex Weekly Stock Digest — ${items.length} alert${items.length !== 1 ? "s" : ""}`
-      : `Inventex Daily Stock Digest — ${items.length} alert${items.length !== 1 ? "s" : ""}`;
+    const summaryName =
+      frequency === "IMMEDIATE"
+        ? "Stock Alert Summary"
+        : frequency === "WEEKLY"
+          ? "Weekly Stock Digest"
+          : "Daily Stock Digest";
+    const subject = `Inventex ${summaryName} — ${items.length} alert${items.length !== 1 ? "s" : ""}`;
+    const intro =
+      frequency === "IMMEDIATE"
+        ? `${items.length} recent stock alert${items.length !== 1 ? "s were" : " was"} grouped into one email.`
+        : `${items.length} stock alert${items.length !== 1 ? "s" : ""} since your last digest.`;
 
     try {
-      await sendDigestEmail({ to: emails, shop, subject, items: digestItems });
+      await sendDigestEmail({
+        to: emails,
+        shop,
+        subject,
+        title: summaryName,
+        intro,
+        items: digestItems,
+      });
 
       const itemIds = items.map(({ id }) => id);
-      await db.$transaction([
-        db.alertQueue.updateMany({
-          where: { shop, id: { in: itemIds }, processed: false },
-          data: { processed: true },
-        }),
-        db.alertSettings.updateMany({
-          where: { shop },
-          data: { lastDigestSentAt: now },
-        }),
-        db.alertSent.create({
-          data: {
-            shop,
-            productId: "*",
-            variantId: "*",
-            alertType: "DIGEST",
-            frequency,
-            sentAt: now,
-          },
-        }),
-      ]);
-
-      totalProcessed += items.length;
+      const markProcessed = db.alertQueue.updateMany({
+        where: { shop, id: { in: itemIds }, processed: false },
+        data: { processed: true },
+      });
+      if (frequency === "IMMEDIATE") {
+        const [processed] = await db.$transaction([
+          markProcessed,
+          db.alertSent.createMany({
+            data: items.map((item) => ({
+              shop,
+              productId: item.productId,
+              variantId: item.variantId,
+              alertType: item.alertType,
+              frequency,
+              sentAt: now,
+            })),
+          }),
+        ]);
+        totalProcessed += processed.count;
+      } else {
+        const [processed] = await db.$transaction([
+          markProcessed,
+          db.alertSettings.updateMany({
+            where: { shop },
+            data: { lastDigestSentAt: now },
+          }),
+          db.alertSent.create({
+            data: {
+              shop,
+              productId: "*",
+              variantId: "*",
+              alertType: "DIGEST",
+              frequency,
+              sentAt: now,
+            },
+          }),
+        ]);
+        totalProcessed += processed.count;
+      }
     } catch (err) {
-      console.error(`[alerts] Failed to send digest for ${shop}:`, err);
+      console.error(`[alerts] Failed to send alert summary for ${shop}:`, err);
     }
   }
 
@@ -385,16 +368,4 @@ async function isInCooldown(
     },
   });
   return recent !== null;
-}
-
-async function recordAlertSent(
-  shop:      string,
-  productId: string,
-  variantId: string,
-  alertType: string,
-  frequency: string,
-): Promise<void> {
-  await db.alertSent.create({
-    data: { shop, productId, variantId, alertType, frequency },
-  });
 }

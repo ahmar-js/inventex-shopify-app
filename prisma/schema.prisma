@@ -166,7 +166,7 @@ model AlertSettings {
   shop               String    @unique
   /// Master switch — whether any stock alert emails are sent
   lowStockEnabled    Boolean   @default(false)
-  /// IMMEDIATE = notify instantly, DAILY = once per day at chosen time, WEEKLY = weekly digest
+  /// IMMEDIATE = short batched summary, DAILY = daily digest, WEEKLY = weekly digest
   alertFrequency     String    @default("IMMEDIATE")
   /// Comma-separated list of up to 5 recipient email addresses.
   alertEmails        String    @default("")
@@ -210,9 +210,8 @@ model AlertSent {
   @@index([shop, productId, alertType, sentAt])
 }
 
-/// Queue for DAILY and WEEKLY digest alerts.
-/// Records are written when an alert is triggered but not sent immediately.
-/// The cron endpoint reads and flushes this table.
+/// Queue for batched immediate, daily, and weekly stock alert summaries.
+/// The cron endpoint reads and flushes due rows for each shop.
 model AlertQueue {
   id           Int      @id @default(autoincrement())
   shop         String

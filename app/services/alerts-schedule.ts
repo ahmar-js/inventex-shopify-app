@@ -8,6 +8,8 @@ export interface DigestSchedule {
 }
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1_000;
+export const IMMEDIATE_BATCH_WINDOW_MS = 2 * 60 * 1_000;
+export const IMMEDIATE_BATCH_MAX_WAIT_MS = 15 * 60 * 1_000;
 const WEEKDAYS: Record<string, number> = {
   Sun: 0,
   Mon: 1,
@@ -24,6 +26,21 @@ interface LocalParts {
   minutes: number;
 }
 
+export function isImmediateBatchDue(
+  latestQueuedAt: Date,
+  now = new Date(),
+  oldestQueuedAt = latestQueuedAt,
+): boolean {
+  const quietFor = now.getTime() - latestQueuedAt.getTime();
+  const waitingFor = now.getTime() - oldestQueuedAt.getTime();
+  return (
+    Number.isFinite(quietFor) &&
+    Number.isFinite(waitingFor) &&
+    (quietFor >= IMMEDIATE_BATCH_WINDOW_MS ||
+      waitingFor >= IMMEDIATE_BATCH_MAX_WAIT_MS)
+  );
+}
+
 export function isDigestDue(
   settings: DigestSchedule,
   now = new Date(),
@@ -38,10 +55,8 @@ export function isDigestDue(
   const current = localParts(now, settings.dailyAlertTimezone);
   if (!current) return false;
 
-  const targetMinutes = to24Hour(
-    settings.dailyAlertHour,
-    settings.dailyAlertAmPm,
-  ) * 60;
+  const targetMinutes =
+    to24Hour(settings.dailyAlertHour, settings.dailyAlertAmPm) * 60;
   if (current.minutes < targetMinutes) return false;
 
   const lastSent = settings.lastDigestSentAt;
@@ -77,7 +92,11 @@ function localParts(date: Date, timeZone: string): LocalParts | null {
     const weekday = WEEKDAYS[parts.weekday];
     const hour = Number(parts.hour);
     const minute = Number(parts.minute);
-    if (weekday === undefined || !Number.isFinite(hour) || !Number.isFinite(minute)) {
+    if (
+      weekday === undefined ||
+      !Number.isFinite(hour) ||
+      !Number.isFinite(minute)
+    ) {
       return null;
     }
     return {

@@ -21,6 +21,9 @@ test("alerts consume canonical availability and preserve four-hour cooldown", as
   assert.match(alerts, /maybeFireAlertsForAvailability/);
   assert.doesNotMatch(alerts, /evaluateProductAvailability/);
   assert.match(alerts, /4 \* 60 \* 60 \* 1000/);
+  assert.match(alerts, /isImmediateBatchDue/);
+  assert.match(alerts, /alertSent\.createMany/);
+  assert.doesNotMatch(alerts, /sendImmediateAlert/);
   assert.match(
     jobs,
     /maybeFireAlertsForAvailability\(job\.shop, availability\)/,
@@ -39,6 +42,13 @@ test("daily and weekly digests use IANA timezones and persisted delivery time", 
   assert.match(alerts, /lastDigestSentAt: now/);
   assert.match(schema, /lastDigestSentAt\s+DateTime\?/);
   assert.doesNotMatch(schedule, /guessUtcOffset/);
+});
+
+test("alert preview uses the same grouped summary template", async () => {
+  const preview = await read("app/routes/app.alerts.preview.tsx");
+  assert.match(preview, /sendDigestEmail/);
+  assert.match(preview, /Stock Alert Summary Preview/);
+  assert.doesNotMatch(preview, /sendAlertEmail/);
 });
 
 test("variant jobs publish only variant IDs to the Online Store publication", async () => {

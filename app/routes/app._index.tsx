@@ -310,7 +310,7 @@ export default function Dashboard() {
                     ? "On"
                     : "Off"
               }
-              detail={`${data.alerts.queuedCount} digest alert${data.alerts.queuedCount === 1 ? "" : "s"} queued`}
+              detail={`${data.alerts.queuedCount} stock alert${data.alerts.queuedCount === 1 ? "" : "s"} queued`}
               href="/app/alerts"
             />
           </s-grid>

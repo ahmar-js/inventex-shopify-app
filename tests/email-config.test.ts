@@ -25,6 +25,7 @@ vi.mock("../app/services/logger.server", () => ({
 import {
   DEVELOPMENT_EMAIL_SENDER,
   sendAlertEmail,
+  sendDigestEmail,
   sendEmail,
 } from "../app/services/email.server";
 
@@ -52,14 +53,20 @@ test("delivery fails closed without a Resend API key", async () => {
   vi.stubEnv("NODE_ENV", "development");
   vi.stubEnv("RESEND_API_KEY", "");
   vi.stubEnv("ALERT_FROM_EMAIL", "");
-  await assert.rejects(sendAlertEmail(alertPayload), /RESEND_API_KEY is required/);
+  await assert.rejects(
+    sendAlertEmail(alertPayload),
+    /RESEND_API_KEY is required/,
+  );
 });
 
 test("production delivery fails closed without a verified sender", async () => {
   vi.stubEnv("NODE_ENV", "production");
   vi.stubEnv("RESEND_API_KEY", "re_test_key");
   vi.stubEnv("ALERT_FROM_EMAIL", "");
-  await assert.rejects(sendAlertEmail(alertPayload), /ALERT_FROM_EMAIL is required/);
+  await assert.rejects(
+    sendAlertEmail(alertPayload),
+    /ALERT_FROM_EMAIL is required/,
+  );
 });
 
 test("development uses the Resend onboarding sender and supports HTML plus text", async () => {
@@ -101,6 +108,48 @@ test("stock alert templates include HTML and plain-text alternatives", async () 
   assert.match(message.text, /Status: Out of stock/);
 });
 
+test("batched alert templates include every product in one email", async () => {
+  vi.stubEnv("NODE_ENV", "production");
+  vi.stubEnv("RESEND_API_KEY", "re_test_key");
+  vi.stubEnv("ALERT_FROM_EMAIL", "Inventex <alerts@example.com>");
+  mocks.send.mockResolvedValue({ data: { id: "email_batch" }, error: null });
+
+  await sendDigestEmail({
+    to: ["merchant@example.com"],
+    shop: "alpha.myshopify.com",
+    subject: "Inventex Stock Alert Summary — 2 alerts",
+    title: "Stock Alert Summary",
+    intro: "2 recent stock alerts were grouped into one email.",
+    items: [
+      {
+        productTitle: "Red shirt",
+        variantTitle: "Small",
+        alertType: "OUT_OF_STOCK",
+        quantity: 0,
+        threshold: 5,
+        productAdminUrl: "https://admin.shopify.com/store/alpha/products/1",
+      },
+      {
+        productTitle: "Blue shirt",
+        variantTitle: "Large",
+        alertType: "LOW_STOCK",
+        quantity: 2,
+        threshold: 5,
+        productAdminUrl: "https://admin.shopify.com/store/alpha/products/2",
+      },
+    ],
+  });
+
+  assert.equal(mocks.send.mock.calls.length, 1);
+  const message = mocks.send.mock.calls[0][0];
+  assert.match(message.html, /Stock Alert Summary/);
+  assert.match(message.html, /Red shirt/);
+  assert.match(message.html, /Blue shirt/);
+  assert.match(message.text, /2 recent stock alerts/);
+  assert.match(message.text, /1\. Red shirt \(Small\)/);
+  assert.match(message.text, /2\. Blue shirt \(Large\)/);
+});
+
 test("Resend failures are logged and rethrown", async () => {
   vi.stubEnv("NODE_ENV", "development");
   vi.stubEnv("RESEND_API_KEY", "re_test_key");
@@ -118,6 +167,9 @@ test("Resend failures are logged and rethrown", async () => {
     }),
     /Resend rejected the message/,
   );
-  assert.equal(mocks.error.mock.calls[0][0], "Transactional email delivery failed");
+  assert.equal(
+    mocks.error.mock.calls[0][0],
+    "Transactional email delivery failed",
+  );
   assert.equal(mocks.error.mock.calls[0][1].recipientCount, 1);
 });

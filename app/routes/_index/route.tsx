@@ -46,7 +46,7 @@ export default function App() {
           <li>
             <strong>Stock alerts</strong>
             <br />
-            Receive immediate, daily, or weekly low-stock notifications.
+            Receive batched, daily, or weekly low-stock notifications.
           </li>
         </ul>
         <p>

@@ -165,8 +165,9 @@ export const headers: HeadersFunction = (args) => boundary.headers(args);
 const FREQUENCY_OPTIONS = [
   {
     value: "IMMEDIATE",
-    label: "Immediately",
-    description: "Send an alert as soon as inventory crosses a selected rule.",
+    label: "Within a few minutes",
+    description:
+      "Group changes for two minutes, then send one email containing every alert.",
   },
   {
     value: "DAILY",
@@ -659,8 +660,8 @@ export default function Alerts() {
               <s-section heading="Preview email">
                 <s-stack direction="block" gap="base">
                   <s-paragraph>
-                    Save your settings first, then send a sample to the saved
-                    recipients.
+                    Save your settings first, then send a sample summary to the
+                    saved recipients.
                   </s-paragraph>
                   <s-stack direction="inline">
                     <s-button

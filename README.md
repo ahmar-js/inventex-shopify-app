@@ -25,7 +25,7 @@ Inventex has three main automations:
 
 1. **Collection sorting** keeps available products in their chosen base order and moves sold-out products to the bottom.
 2. **Product hiding** removes sold-out products from the Online Store publication, optionally creates redirects, and reverses those changes after restock.
-3. **Stock alerts** sends immediate, daily, or weekly email notifications for low-stock and out-of-stock products or variants.
+3. **Stock alerts** sends short-batched, daily, or weekly email summaries for low-stock and out-of-stock products or variants.
 
 Every automation uses the same availability engine. Shopify webhooks only record incoming events and queue work; slow Shopify mutations never run inside the webhook request.
 
@@ -38,7 +38,7 @@ flowchart LR
     E --> F[Sort selected collections]
     E --> G[Hide or restore products and variants]
     E --> H[Create stock alert events]
-    I[Alert scheduler] --> J[Send due email digests]
+    I[Alert scheduler] --> J[Send due email summaries]
     H --> I
 ```
 
@@ -237,7 +237,7 @@ Choose whether Inventex checks availability at the **Product** or **Variant** le
 
 #### Select frequency
 
-- **Immediately** sends when a new qualifying stock event is evaluated. Repeated immediate alerts for the same target and condition have a four-hour cooldown.
+- **Within a few minutes** groups qualifying events for two minutes after the latest change, then sends one email containing every product or variant. Repeated alerts for the same target and condition have a four-hour cooldown after delivery.
 - **Once per day** sends one digest after the selected local time each day.
 - **Weekly digest** sends on the selected local weekday and time, and never more often than seven days after the last successful weekly digest.
 
@@ -315,7 +315,7 @@ A product sells out with a three-day hide delay. It is restocked the next day. I
 | A restocked product remains unpublished | Confirm it is genuinely available online and still has `inventex-hidden`. Removing that tag is treated as a merchant override. Check Activity Logs for API errors. |
 | A redirect remains | Check whether the product still has `inventex-hidden`, then review Activity Logs. Redirects left after uninstall are intentionally not cleaned up automatically. |
 | Alerts do not send | Confirm alerts and billing are active, recipients are saved, a condition is selected, `/cron/alerts` runs regularly, and Resend sender configuration is valid. |
-| Immediate alerts repeat too often | The same target and condition has a four-hour cooldown. Different products, variants, or conditions can still generate alerts. |
+| Alert summaries repeat too often | The same target and condition has a four-hour cooldown after delivery. Confirm `/cron/alerts` is not being invoked concurrently by multiple schedulers. |
 | Variant hiding does not run | The beta pauses above 500 Online Store-published products. Also verify the setting and job status. |
 | The dashboard says payment is required | Open Plans and approve a plan that covers the current Active + Draft product count. |
 | Work remains in Needs attention | Inspect the dead-letter job and Shopify API metrics in Activity Logs, correct the underlying problem, then re-trigger the relevant scan or action. |
@@ -455,7 +455,7 @@ Run both endpoints from a trusted scheduler. Send the same secret as a Bearer to
 | Endpoint | Recommended schedule | Responsibility |
 | --- | --- | --- |
 | `POST /cron/jobs` | Every minute | Claims and processes queued inventory, sort, hide, restore, and scan jobs. |
-| `POST /cron/alerts` | Every minute | Sends due daily and weekly digests. |
+| `POST /cron/alerts` | Every minute | Sends due short-batched, daily, and weekly alert summaries. |
 
 Example:
 

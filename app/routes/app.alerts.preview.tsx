@@ -9,7 +9,7 @@
 import type { ActionFunctionArgs } from "react-router";
 import { authenticate } from "../shopify.server";
 import db from "../db.server";
-import { sendAlertEmail } from "../services/email.server";
+import { sendDigestEmail } from "../services/email.server";
 import { getBillingAccess } from "../services/billing.server";
 import { billingAccessMessage } from "../services/billing";
 
@@ -30,7 +30,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   if (!settings || !settings.lowStockEnabled) {
     return Response.json({
       previewSent: false,
-      previewError: "Enable low stock alerts first, then save before sending a preview.",
+      previewError:
+        "Enable low stock alerts first, then save before sending a preview.",
     });
   }
 
@@ -41,29 +42,55 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   if (emails.length === 0) {
     return Response.json({
       previewSent: false,
-      previewError: "Add at least one recipient email first, then save before sending a preview.",
+      previewError:
+        "Add at least one recipient email first, then save before sending a preview.",
     });
   }
 
-  const alertType      = settings.alertOnLowStock ? "LOW_STOCK" : "OUT_OF_STOCK";
-  const quantity       = alertType === "LOW_STOCK" ? settings.lowStockThreshold : 0;
-  const shopHandle     = shop.replace(".myshopify.com", "");
+  const shopHandle = shop.replace(".myshopify.com", "");
   const productAdminUrl = `https://admin.shopify.com/store/${shopHandle}/products`;
-  const variantTitle   = settings.stockCheckLevel === "VARIANT" ? "Size: M / Color: Blue" : "";
+  const variantTitle =
+    settings.stockCheckLevel === "VARIANT" ? "Size: M / Color: Blue" : "";
+  const items = [
+    ...(settings.alertOnOutOfStock
+      ? [
+          {
+            productTitle: "Sample sold-out product",
+            variantTitle,
+            alertType: "OUT_OF_STOCK" as const,
+            quantity: 0,
+            threshold: settings.lowStockThreshold,
+            productAdminUrl,
+          },
+        ]
+      : []),
+    ...(settings.alertOnLowStock
+      ? [
+          {
+            productTitle: "Sample low-stock product",
+            variantTitle,
+            alertType: "LOW_STOCK" as const,
+            quantity: settings.lowStockThreshold,
+            threshold: settings.lowStockThreshold,
+            productAdminUrl,
+          },
+        ]
+      : []),
+  ];
 
   try {
-    await sendAlertEmail({
-      to:           emails,
+    await sendDigestEmail({
+      to: emails,
       shop,
-      subject:      `[Preview] ${alertType === "LOW_STOCK" ? "⚠️ Low stock" : "🚨 Out of stock"}: Sample Product`,
-      productTitle: "Sample Product — Test Preview",
-      variantTitle,
-      alertType,
-      quantity,
-      threshold:    settings.lowStockThreshold,
-      productAdminUrl,
+      subject: `[Preview] Inventex Stock Alert Summary — ${items.length} alert${items.length === 1 ? "" : "s"}`,
+      title: "Stock Alert Summary Preview",
+      intro: `${items.length} sample stock alert${items.length === 1 ? "" : "s"} grouped into one email.`,
+      items,
     });
-    return Response.json({ previewSent: true, previewEmails: emails.join(", ") });
+    return Response.json({
+      previewSent: true,
+      previewEmails: emails.join(", "),
+    });
   } catch (err: unknown) {
     return Response.json({
       previewSent: false,

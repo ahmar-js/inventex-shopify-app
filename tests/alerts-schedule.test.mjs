@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "vitest";
-import { isDigestDue } from "../app/services/alerts-schedule.ts";
+import {
+  IMMEDIATE_BATCH_MAX_WAIT_MS,
+  IMMEDIATE_BATCH_WINDOW_MS,
+  isDigestDue,
+  isImmediateBatchDue,
+} from "../app/services/alerts-schedule.ts";
 
 const schedule = (overrides = {}) => ({
   alertFrequency: "DAILY",
@@ -92,5 +97,41 @@ test("invalid timezones and immediate frequency fail closed", () => {
   assert.equal(
     isDigestDue(schedule({ alertFrequency: "IMMEDIATE" }), now),
     false,
+  );
+});
+
+test("immediate alerts wait for the two-minute batching window", () => {
+  const queuedAt = new Date("2026-08-24T14:00:00.000Z");
+  assert.equal(IMMEDIATE_BATCH_WINDOW_MS, 2 * 60 * 1000);
+  assert.equal(
+    isImmediateBatchDue(
+      queuedAt,
+      new Date(queuedAt.getTime() + IMMEDIATE_BATCH_WINDOW_MS - 1),
+    ),
+    false,
+  );
+  assert.equal(
+    isImmediateBatchDue(
+      queuedAt,
+      new Date(queuedAt.getTime() + IMMEDIATE_BATCH_WINDOW_MS),
+    ),
+    true,
+  );
+  assert.equal(
+    isImmediateBatchDue(queuedAt, new Date(queuedAt.getTime() - 1)),
+    false,
+  );
+});
+
+test("a continuously busy immediate batch cannot wait forever", () => {
+  const oldestQueuedAt = new Date("2026-08-24T14:00:00.000Z");
+  const latestQueuedAt = new Date("2026-08-24T14:14:59.000Z");
+  const now = new Date(
+    oldestQueuedAt.getTime() + IMMEDIATE_BATCH_MAX_WAIT_MS,
+  );
+
+  assert.equal(
+    isImmediateBatchDue(latestQueuedAt, now, oldestQueuedAt),
+    true,
   );
 });

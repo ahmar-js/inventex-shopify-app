@@ -9,8 +9,7 @@
 import { Resend, type CreateEmailOptions } from "resend";
 import { logger } from "./logger.server";
 
-export const DEVELOPMENT_EMAIL_SENDER =
-  "Inventex <onboarding@resend.dev>";
+export const DEVELOPMENT_EMAIL_SENDER = "Inventex <onboarding@resend.dev>";
 
 let resendClient: Resend | null = null;
 let resendApiKey: string | null = null;
@@ -59,6 +58,8 @@ export interface DigestEmailPayload {
   to: string[];
   shop: string;
   subject: string;
+  title?: string;
+  intro?: string;
   items: Array<{
     productTitle: string;
     variantTitle: string;
@@ -245,6 +246,10 @@ function buildSingleAlertText(payload: AlertEmailPayload) {
 }
 
 function buildDigestHtml(payload: DigestEmailPayload) {
+  const title = payload.title?.trim() || "Stock Digest";
+  const intro =
+    payload.intro?.trim() ||
+    `Here's a summary of ${payload.items.length} stock alert${payload.items.length === 1 ? "" : "s"} since your last digest.`;
   const rows = payload.items
     .map((item) => {
       const outOfStock = item.alertType === "OUT_OF_STOCK";
@@ -262,9 +267,9 @@ function buildDigestHtml(payload: DigestEmailPayload) {
 
   return `<!doctype html><html><head><meta charset="utf-8"><style>${CSS}</style></head><body>
 <div class="wrap">
-  <div class="header"><h1>Inventex &mdash; Stock Digest</h1><p>${escapeHtml(payload.shop)}</p></div>
+  <div class="header"><h1>Inventex &mdash; ${escapeHtml(title)}</h1><p>${escapeHtml(payload.shop)}</p></div>
   <div class="body">
-    <p style="color:#1a1c1e;margin-top:0">Here&rsquo;s a summary of ${payload.items.length} stock alert${payload.items.length === 1 ? "" : "s"} since your last digest.</p>
+    <p style="color:#1a1c1e;margin-top:0">${escapeHtml(intro)}</p>
     <table class="items"><thead><tr><th>Product</th><th>Alert</th><th style="text-align:right">Qty</th><th>Link</th></tr></thead><tbody>${rows}</tbody></table>
   </div>
   <div class="footer">You&rsquo;re receiving this because you enabled stock alerts in Inventex.</div>
@@ -272,6 +277,10 @@ function buildDigestHtml(payload: DigestEmailPayload) {
 }
 
 function buildDigestText(payload: DigestEmailPayload) {
+  const title = payload.title?.trim() || "Stock digest";
+  const intro =
+    payload.intro?.trim() ||
+    `${payload.items.length} stock alert${payload.items.length === 1 ? "" : "s"} since your last digest.`;
   const items = payload.items.map((item, index) => {
     const title = item.variantTitle
       ? `${item.productTitle} (${item.variantTitle})`
@@ -289,11 +298,14 @@ function buildDigestText(payload: DigestEmailPayload) {
       .join("\n");
   });
   return [
-    "Inventex stock digest",
+    `Inventex ${title}`,
     `Store: ${payload.shop}`,
+    intro,
     "",
     ...items.flatMap((item) => [item, ""]),
-  ].join("\n").trim();
+  ]
+    .join("\n")
+    .trim();
 }
 
 function escapeHtml(value: string) {
